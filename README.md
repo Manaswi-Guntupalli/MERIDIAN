@@ -1,6 +1,6 @@
 # ⬦ Meridian — the trust-first operating system for schools
 
-> Five engines, one source of truth. Every automated action is **explainable, reversible and audited** — so you can automate everything, because you can undo anything.
+> Five engines, one source of truth. Every automated action is **explain able, reversible and audited** — so you can automate everything, because you can undo anything.
 
 A complete, production-shaped full-stack application for the **Future-Ready Ops** challenge: React + TypeScript + Tailwind on the front, Node + Express + Prisma + Socket.io on the back, with real OpenAI-powered AI (and a deterministic, data-grounded fallback so it never fails on stage).
 
