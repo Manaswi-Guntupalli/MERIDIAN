@@ -1,0 +1,484 @@
+// Meridian — trust-first school operating system.
+// Provider is SQLite for zero-setup local dev; swap to "postgresql" for prod
+// (see docker-compose.yml). Schema stays portable: no native enums / scalar
+// lists — we use String constants + String so it runs identically on both.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────  TENANT  ─────────────────────────────
+model School {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String?
+  phone     String?
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  teachers      Teacher[]
+  students      Student[]
+  parents       Parent[]
+  classes       Class[]
+  subjects      Subject[]
+  buildings     Building[]
+  attendance    Attendance[]
+  documents     Document[]
+  timetables    Timetable[]
+  fees          Fee[]
+  notifications Notification[]
+  events        Event[]
+  auditLogs     AuditLog[]
+  aiLogs        AILog[]
+  predictions   Prediction[]
+  emergencies   EmergencyIncident[]
+  settings      Setting[]
+}
+
+// ─────────────────────────────  AUTH  ──────────────────────────────
+// role ∈ SUPER_ADMIN | ADMIN | PRINCIPAL | TEACHER | STUDENT | PARENT
+model User {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  email     String   @unique
+  password  String
+  name      String
+  role      String
+  phone     String?
+  avatarUrl String?
+  active    Boolean  @default(true)
+  lastLogin DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teacher   Teacher?
+  student   Student?
+  parent    Parent?
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  aiLogs        AILog[]
+}
+
+model Teacher {
+  id            String   @id @default(cuid())
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id])
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id])
+  employeeId    String
+  department    String
+  qualification String?
+  maxHours      Int      @default(24)      // weekly cap (Kairos hard constraint)
+  weeklyHours   Int      @default(0)       // current assigned load
+  subjectsString  String?                      // qualified subject codes
+  faceEnrolled  Boolean  @default(false)
+  faceCount     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  classesLed  Class[]         @relation("ClassTeacher")
+  slots       TimetableSlot[]
+  substitutes Substitution[]  @relation("SubTeacher")
+  absences    StaffAbsence[]
+}
+
+model Student {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  userId      String?  @unique
+  user        User?    @relation(fields: [userId], references: [id])
+  admissionNo String
+  rollNo      Int
+  name        String
+  gender      String?
+  dob         DateTime?
+  bloodGroup  String?
+  photoUrl    String?
+  classId     String?
+  class       Class?   @relation(fields: [classId], references: [id])
+  rfidTag     String?  @unique
+  faceEnrolled Boolean @default(false)   // has enrolled face embeddings
+  faceCount    Int     @default(0)       // number of stored embeddings
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attendance Attendance[]
+  fees       Fee[]
+  parents    StudentParent[]
+}
+
+model Parent {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  relation  String   @default("Guardian")
+  createdAt DateTime @default(now())
+
+  children StudentParent[]
+}
+
+model StudentParent {
+  id        String  @id @default(cuid())
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id])
+  parentId  String
+  parent    Parent  @relation(fields: [parentId], references: [id])
+
+  @@unique([studentId, parentId])
+}
+
+// ─────────────────────────  ACADEMIC STRUCTURE  ─────────────────────
+model Class {
+  id             String   @id @default(cuid())
+  schoolId       String
+  school         School   @relation(fields: [schoolId], references: [id])
+  grade          Int
+  section        String
+  name           String                       // e.g. "9B"
+  roomId         String?
+  room           Room?    @relation(fields: [roomId], references: [id])
+  classTeacherId String?
+  classTeacher   Teacher? @relation("ClassTeacher", fields: [classTeacherId], references: [id])
+  createdAt      DateTime @default(now())
+
+  students   Student[]
+  attendance Attendance[]
+  slots      TimetableSlot[]
+
+  @@unique([schoolId, grade, section])
+}
+
+model Subject {
+  id         String  @id @default(cuid())
+  schoolId   String
+  school     School  @relation(fields: [schoolId], references: [id])
+  code       String
+  name       String
+  color      String  @default("#6366f1")
+  weeklyLoad Int     @default(5)
+  requiresLab Boolean @default(false)
+  cognitiveLoad Int   @default(3)            // 1..5, used by Kairos soft spread
+
+  slots TimetableSlot[]
+
+  @@unique([schoolId, code])
+}
+
+// ───────────────────────────  DIGITAL TWIN  ─────────────────────────
+model Building {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  name     String
+  floors   Int    @default(2)
+  x        Float  @default(0)                 // map layout
+  y        Float  @default(0)
+
+  rooms Room[]
+}
+
+// type ∈ CLASSROOM | LAB | OFFICE | HALL | LIBRARY
+model Room {
+  id          String  @id @default(cuid())
+  buildingId  String
+  building    Building @relation(fields: [buildingId], references: [id])
+  name        String
+  type        String  @default("CLASSROOM")
+  capacity    Int     @default(40)
+  floor       Int     @default(0)
+  hasProjector Boolean @default(false)
+
+  classes Class[]
+  slots   TimetableSlot[]
+}
+
+// ──────────────────────────────  ATTENDANCE  ────────────────────────
+// status ∈ PRESENT | ABSENT | LATE | LEAVE ; source ∈ MANUAL | RFID | CV
+model Attendance {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id])
+  classId    String
+  class      Class    @relation(fields: [classId], references: [id])
+  date       String                            // YYYY-MM-DD
+  status     String   @default("PRESENT")
+  source     String   @default("MANUAL")
+  confidence Float?                             // for CV
+  markedById String?
+  timestamp  DateTime @default(now())
+
+  @@unique([studentId, date])
+  @@index([schoolId, date])
+}
+
+// ──────────────────────────  LUMEN (DOCUMENTS)  ─────────────────────
+// status ∈ PROCESSING | REVIEW | VERIFIED | REJECTED
+model Document {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  type        String                            // ADMISSION | LEAVE | MEDICAL | FEE_RECEIPT
+  fileName    String
+  fileUrl     String?
+  status      String   @default("PROCESSING")
+  overallConfidence Float @default(0)
+  uploadedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fields ExtractedField[]
+}
+
+model ExtractedField {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  key        String                            // ERP field name
+  label      String
+  value      String
+  confidence Float
+  // pixel-level provenance — the crop the value was read from
+  cropX      Float
+  cropY      Float
+  cropW      Float
+  cropH      Float
+  status     String   @default("AUTO")          // AUTO | REVIEW | CONFIRMED
+}
+
+// ──────────────────────────  KAIROS (TIMETABLE)  ────────────────────
+model Timetable {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  name      String
+  active    Boolean  @default(true)
+  solveMs   Int      @default(0)
+  score     Float    @default(0)
+  createdAt DateTime @default(now())
+
+  slots TimetableSlot[]
+}
+
+model TimetableSlot {
+  id          String   @id @default(cuid())
+  timetableId String
+  timetable   Timetable @relation(fields: [timetableId], references: [id], onDelete: Cascade)
+  day         Int                                // 0=Mon .. 4=Fri
+  period      Int                                // 0-indexed
+  classId     String
+  class       Class    @relation(fields: [classId], references: [id])
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id])
+  teacherId   String
+  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  roomId      String?
+  room        Room?    @relation(fields: [roomId], references: [id])
+
+  @@index([timetableId, day, period])
+}
+
+model StaffAbsence {
+  id        String   @id @default(cuid())
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id])
+  date      String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  substitutions Substitution[]
+}
+
+model Substitution {
+  id          String   @id @default(cuid())
+  absenceId   String
+  absence     StaffAbsence @relation(fields: [absenceId], references: [id])
+  subTeacherId String
+  subTeacher  Teacher  @relation("SubTeacher", fields: [subTeacherId], references: [id])
+  day         Int
+  period      Int
+  accepted    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// ──────────────────────────  FEES / PAYMENTS  ──────────────────────
+// status ∈ PENDING | PARTIAL | PAID | OVERDUE
+model Fee {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id])
+  title     String
+  amount    Float
+  paid      Float    @default(0)
+  dueDate   String
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+
+  payments Payment[]
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  feeId     String
+  fee       Fee      @relation(fields: [feeId], references: [id])
+  amount    Float
+  method    String   @default("CASH")
+  reference String?
+  paidAt    DateTime @default(now())
+}
+
+// ─────────────────────  FORESIGHT (PREDICTIONS)  ───────────────────
+// kind ∈ ABSENCE | SUBSTITUTE_DEMAND | FEE_RISK | ATTENDANCE_TREND
+model Prediction {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+  kind       String
+  targetDate String
+  label      String
+  value      Float
+  confidence Float
+  driversString String?                             // SHAP-style top drivers
+  createdAt  DateTime @default(now())
+}
+
+// ───────────────────  TRUST CORE: EVENTS / AUDIT / AI  ──────────────
+// The append-only event store — single source of truth for Time Machine.
+model Event {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  type        String                            // e.g. ATTENDANCE_MARKED
+  aggregate   String                            // entity kind
+  aggregateId String
+  payloadString String
+  actorId     String?
+  actorName   String?
+  reversible  Boolean  @default(true)
+  reverted    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+}
+
+// Trust Ledger — every AI action: who, what, why, confidence, reversible.
+model AILog {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+  engine     String                            // LUMEN | KAIROS | FORESIGHT | COPILOT | PRESENCE
+  action     String
+  reason     String?
+  confidence Float?
+  inputString  String?
+  outputString String?
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  reversible Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metaString  String?
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+}
+
+// ────────────────────────────  NOTIFICATIONS  ──────────────────────
+// severity ∈ INFO | SUCCESS | WARNING | CRITICAL
+model Notification {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  severity  String   @default("INFO")
+  category  String   @default("GENERAL")
+  actionString String?                              // suggested fix / deep link
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ──────────────────────────  EMERGENCY MODE  ────────────────────────
+// kind ∈ FIRE | EARTHQUAKE | MEDICAL | LOCKDOWN
+model EmergencyIncident {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+  kind       String
+  status     String   @default("ACTIVE")        // ACTIVE | RESOLVED
+  triggeredBy String?
+  note       String?
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+}
+
+model Setting {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+  key      String
+  valueString String
+
+  @@unique([schoolId, key])
+}
+
+// ─────────────────────  PRESENCE · FACE RECOGNITION  ────────────────
+// On-device 128-D neural face embeddings. We store ONLY the vector — never
+// a raw image — so a row can't be reverse-engineered into a child's face.
+// subjectType ∈ STUDENT | TEACHER
+model FaceEmbedding {
+  id           String   @id @default(cuid())
+  schoolId     String
+  subjectType  String
+  subjectId    String                          // student.id or teacher.id
+  name         String                          // cached for fast display
+  vectorString String                          // JSON array of 128 floats
+  label        String   @default("front")       // capture pose
+  quality      Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([schoolId, subjectType])
+  @@index([subjectId])
+}
+
+// Log of unknown / spoof detections at the kiosk (admin can review/register).
+// kind ∈ UNKNOWN | SPOOF
+model FaceEvent {
+  id         String   @id @default(cuid())
+  schoolId   String
+  kind       String
+  confidence Float    @default(0)
+  cameraId   String   @default("kiosk-1")
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+}

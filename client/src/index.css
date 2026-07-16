@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-950 text-slate-200 antialiased font-sans;
+  /* Deep-space background: dual accent glows over a faint grid. */
+  background-image:
+    radial-gradient(ellipse 70% 45% at 15% -5%, rgba(139, 92, 246, 0.16), transparent),
+    radial-gradient(ellipse 60% 45% at 100% 5%, rgba(0, 229, 255, 0.1), transparent),
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+  background-attachment: fixed;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: '"Inter Tight"', 'Inter Tight', Inter, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.32);
+  background-clip: content-box;
+}
+
+@layer components {
+  /* Glassmorphism — frosted, with depth. */
+  .glass {
+    @apply rounded-2xl border border-white/[0.06] bg-white/[0.025] backdrop-blur-xl;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 60px -34px rgba(0, 0, 0, 0.95);
+  }
+  .glass-hover {
+    @apply transition-all duration-300 hover:border-brand-500/25 hover:bg-white/[0.045] hover:shadow-glow;
+  }
+  .card {
+    @apply glass p-5;
+  }
+  .gradient-text {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand-400/50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-gradient text-ink-950 hover:shadow-glow hover:brightness-110;
+  }
+  .btn-ghost {
+    @apply btn border border-white/10 bg-white/[0.02] text-slate-200 hover:bg-white/[0.06] hover:border-white/20;
+  }
+  .btn-danger {
+    @apply btn bg-rose-500 text-white hover:bg-rose-400;
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-ink-850/70 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-400/60 focus:ring-2 focus:ring-brand-400/20;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-slate-300;
+  }
+  .label {
+    @apply text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-500;
+  }
+  /* Live "AI online" pulse dot. */
+  .live-dot {
+    @apply relative inline-flex h-2 w-2 rounded-full bg-mint-400;
+  }
+  .live-dot::after {
+    content: '';
+    @apply absolute inset-0 rounded-full bg-mint-400;
+    animation: pulseGlow 2s ease-in-out infinite;
+    box-shadow: 0 0 0 4px rgba(0, 208, 132, 0.15);
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tnum {
+    font-family: '"IBM Plex Mono"', ui-monospace, monospace;
+    font-feature-settings: 'tnum';
+  }
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+}

@@ -1,0 +1,28 @@
+# Optional Postgres for production-grade deployment.
+# Local dev defaults to SQLite (zero setup). To use Postgres:
+#   1) docker compose up -d
+#   2) in server/.env set: DATABASE_URL="postgresql://meridian:meridian@localhost:5432/meridian?schema=public"
+#   3) in server/prisma/schema.prisma set datasource provider = "postgresql"
+#   4) npm --prefix server run db:setup
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: meridian-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: meridian
+      POSTGRES_PASSWORD: meridian
+      POSTGRES_DB: meridian
+    ports:
+      - "5432:5432"
+    volumes:
+      - meridian_pgdata:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    container_name: meridian-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  meridian_pgdata:
