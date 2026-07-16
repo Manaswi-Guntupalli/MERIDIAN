@@ -6,7 +6,7 @@ A complete, production-shaped full-stack application for the **Future-Ready Ops*
 
 ---
 
-## ✨ What's inside
+## ✨ What's inside 
 
 ### The five engines (every problem-statement requirement, mapped)
 | Requirement | Engine | Where |
