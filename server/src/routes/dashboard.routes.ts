@@ -10,14 +10,48 @@ router.use(authenticate);
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-// The most relevant attendance day: today if it has records, else the latest
-// day that does. Keeps the demo robust however many days after seeding it runs.
-async function effectiveDate(schoolId: string): Promise<string> {
+// A day only speaks for the school once enough of the school is actually
+// marked. Below this, the sample is "in progress", not a health signal.
+const REPRESENTATIVE_COVERAGE = 0.5;
+
+/**
+ * The most recent day whose attendance covers enough of the school to be
+ * representative.
+ *
+ * Why this exists: marking a single class (say 8A absent) creates records for
+ * ~17% of students. Treating present/marked as school-wide attendance then
+ * reports 0% and craters Operational Health — a partial sample masquerading as
+ * the whole school. Headline health uses a representative day; today's live
+ * progress is reported separately (see `todayAttendance`) so nothing is hidden.
+ */
+async function representativeDate(schoolId: string, totalStudents: number): Promise<string> {
   const t = today();
-  const has = await prisma.attendance.count({ where: { schoolId, date: t } });
-  if (has) return t;
-  const latest = await prisma.attendance.findFirst({ where: { schoolId }, orderBy: { date: 'desc' } });
-  return latest?.date ?? t;
+  const recent = await prisma.attendance.groupBy({
+    by: ['date'],
+    where: { schoolId },
+    _count: { _all: true },
+    orderBy: { date: 'desc' },
+    take: 20,
+  });
+  const enough = (n: number) => totalStudents > 0 && n / totalStudents >= REPRESENTATIVE_COVERAGE;
+  const rep = recent.find((r) => enough(r._count._all));
+  return rep?.date ?? recent[0]?.date ?? t;
+}
+
+/** Live, real-time picture of today — however partial it currently is. */
+async function todayAttendance(schoolId: string, totalStudents: number) {
+  const rows = await prisma.attendance.findMany({ where: { schoolId, date: today() } });
+  const present = rows.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+  const coverage = totalStudents ? Math.round((rows.length / totalStudents) * 100) : 0;
+  return {
+    date: today(),
+    marked: rows.length,
+    present,
+    absent: rows.length - present,
+    rate: rows.length ? Math.round((present / rows.length) * 100) : 0,
+    coverage,
+    inProgress: coverage < REPRESENTATIVE_COVERAGE * 100,
+  };
 }
 
 // Teacher dashboard — the classes they lead, today's schedule, their reach.
@@ -141,24 +175,25 @@ router.get(
   authorize(...STAFF_ADMIN),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
-    const t = await effectiveDate(schoolId);
-    const [students, teacherList, classes, todayAtt, fees, docsReview, activeEmergency, absencesToday, eventCount, aiCount] =
+    const students = await prisma.student.count({ where: { schoolId } });
+    const t = await representativeDate(schoolId, students);
+    const [teacherList, classes, repAtt, live, fees, docsReview, activeEmergency, absencesToday, eventCount, aiCount] =
       await Promise.all([
-        prisma.student.count({ where: { schoolId } }),
         prisma.teacher.findMany({ where: { schoolId } }),
         prisma.class.count({ where: { schoolId } }),
         prisma.attendance.findMany({ where: { schoolId, date: t } }),
+        todayAttendance(schoolId, students),
         prisma.fee.findMany({ where: { schoolId } }),
         prisma.document.count({ where: { schoolId, status: 'REVIEW' } }),
         prisma.emergencyIncident.findFirst({ where: { schoolId, status: 'ACTIVE' } }),
-        prisma.staffAbsence.findMany({ where: { date: t, teacher: { schoolId } }, include: { substitutions: true } }),
+        prisma.staffAbsence.findMany({ where: { date: today(), teacher: { schoolId } }, include: { substitutions: true } }),
         prisma.event.count({ where: { schoolId } }),
         prisma.aILog.count({ where: { schoolId } }),
       ]);
 
     const teachers = teacherList.length;
-    const present = todayAtt.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
-    const attendanceRate = todayAtt.length ? Math.round((present / todayAtt.length) * 100) : 0;
+    const present = repAtt.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+    const attendanceRate = repAtt.length ? Math.round((present / repAtt.length) * 100) : 0;
     const outstanding = fees.reduce((a, f) => a + (f.amount - f.paid), 0);
     const overdueCount = fees.filter((f) => f.status !== 'PAID').length;
 
@@ -183,9 +218,11 @@ router.get(
       students,
       teachers,
       classes,
-      attendanceRate,
+      attendanceRate, // representative-day rate — powers Health
+      attendanceDate: t,
       present,
-      totalMarked: todayAtt.length,
+      totalMarked: repAtt.length,
+      today: live, // live, real-time progress for today (may be partial)
       outstanding: Math.round(outstanding),
       overdueCount,
       docsInReview: docsReview,
@@ -211,7 +248,8 @@ router.get(
   authorize(...STAFF_ADMIN),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
-    const t = await effectiveDate(schoolId);
+    const totalStudents = await prisma.student.count({ where: { schoolId } });
+    const t = await representativeDate(schoolId, totalStudents);
     const alerts: any[] = [];
 
     // Uncovered classes today (teacher absent, no substitution)

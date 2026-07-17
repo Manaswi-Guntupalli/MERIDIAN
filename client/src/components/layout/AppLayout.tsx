@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -10,6 +10,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 
 export default function AppLayout() {
   const [mobileNav, setMobileNav] = useState(false);
+  const location = useLocation();
   useRealtime();
 
   return (
@@ -23,9 +24,9 @@ export default function AppLayout() {
       <AnimatePresence>
         {mobileNav && (
           <motion.div className="fixed inset-0 z-50 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNav(false)} />
+            <div className="absolute inset-0 bg-slate-900/25 backdrop-blur-sm" onClick={() => setMobileNav(false)} />
             <motion.div initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ type: 'spring', stiffness: 320, damping: 34 }} className="absolute inset-y-0 left-0">
-              <Sidebar onNavigate={() => setMobileNav(false)} />
+              <Sidebar mobile onNavigate={() => setMobileNav(false)} />
             </motion.div>
           </motion.div>
         )}
@@ -34,10 +35,17 @@ export default function AppLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onMenu={() => setMobileNav(true)} />
         <EmergencyBanner />
-        <main className="no-scrollbar flex-1 overflow-y-auto px-4 py-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
+        <main className="no-scrollbar flex-1 overflow-y-auto px-5 py-8 lg:px-9 lg:py-10">
+          {/* Page transition: a short, restrained fade-rise. */}
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+            className="mx-auto max-w-[1240px]"
+          >
             <Outlet />
-          </div>
+          </motion.div>
         </main>
       </div>
 

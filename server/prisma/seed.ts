@@ -83,13 +83,13 @@ async function main() {
 
   // ── Subjects ──
   const subjectDefs = [
-    { code: 'MATH', name: 'Mathematics', color: '#6366f1', weeklyLoad: 6, cognitiveLoad: 5 },
-    { code: 'ENG', name: 'English', color: '#22d3ee', weeklyLoad: 5, cognitiveLoad: 3 },
-    { code: 'SCI', name: 'Science', color: '#10b981', weeklyLoad: 5, cognitiveLoad: 5, requiresLab: true },
-    { code: 'SST', name: 'Social Studies', color: '#f59e0b', weeklyLoad: 4, cognitiveLoad: 3 },
-    { code: 'HIN', name: 'Hindi', color: '#f472b6', weeklyLoad: 4, cognitiveLoad: 2 },
-    { code: 'CS', name: 'Computer Science', color: '#a78bfa', weeklyLoad: 3, cognitiveLoad: 4, requiresLab: true },
-    { code: 'PE', name: 'Physical Ed', color: '#84cc16', weeklyLoad: 2, cognitiveLoad: 1 },
+    { code: 'MATH', name: 'Mathematics', color: '#0E7C6B', weeklyLoad: 6, cognitiveLoad: 5 },
+    { code: 'ENG', name: 'English', color: '#1F6F8B', weeklyLoad: 5, cognitiveLoad: 3 },
+    { code: 'SCI', name: 'Science', color: '#1E8A63', weeklyLoad: 5, cognitiveLoad: 5, requiresLab: true },
+    { code: 'SST', name: 'Social Studies', color: '#C98A21', weeklyLoad: 4, cognitiveLoad: 3 },
+    { code: 'HIN', name: 'Hindi', color: '#B0605C', weeklyLoad: 4, cognitiveLoad: 2 },
+    { code: 'CS', name: 'Computer Science', color: '#5C6E9E', weeklyLoad: 3, cognitiveLoad: 4, requiresLab: true },
+    { code: 'PE', name: 'Physical Ed', color: '#6F8C3A', weeklyLoad: 2, cognitiveLoad: 1 },
   ];
   const subjects = await Promise.all(
     subjectDefs.map((s) => prisma.subject.create({ data: { schoolId, ...s } })),
@@ -273,6 +273,8 @@ async function main() {
 
   // ── Baseline Trust ledger — automated actions already taken (drives the
   //    "admin hours saved" counter honestly, and populates the audit timeline) ──
+  // `reversible` must reflect whether a real reverser exists (see eventStore).
+  // STUDENT_CREATED has one; DOCUMENT_PROCESSED does not — so we say so.
   const eventRows = students.map((s, i) => ({
     schoolId,
     type: 'STUDENT_CREATED',
@@ -280,11 +282,13 @@ async function main() {
     aggregateId: s.id,
     payloadString: toJson({ studentId: s.id, name: s.name }),
     actorName: 'Admissions intake (Lumen)',
+    reversible: true,
     createdAt: new Date(Date.now() - (i % 20) * 3600_000),
   }));
   eventRows.push({
     schoolId, type: 'DOCUMENT_PROCESSED', aggregate: 'Document', aggregateId: doc1.id,
-    payloadString: toJson({ documentId: doc1.id, type: 'ADMISSION' }), actorName: 'Lumen', createdAt: new Date(),
+    payloadString: toJson({ documentId: doc1.id, type: 'ADMISSION' }), actorName: 'Lumen',
+    reversible: false, createdAt: new Date(),
   } as any);
   await prisma.event.createMany({ data: eventRows });
 

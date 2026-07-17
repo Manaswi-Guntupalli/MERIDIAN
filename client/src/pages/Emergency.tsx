@@ -61,12 +61,12 @@ export default function Emergency() {
             transition={{ delay: i * 0.06 }}
             whileHover={{ y: -4 }}
             onClick={() => setConfirm(k.kind)}
-            className="glass glass-hover group relative overflow-hidden p-6 text-left"
+            className="surface surface-hover group relative overflow-hidden p-6 text-left"
           >
             <div className={cn('absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br opacity-20 blur-2xl transition group-hover:opacity-40', k.tone)} />
-            <span className={cn('grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br text-white', k.tone)}><k.icon className="h-6 w-6" /></span>
-            <div className="mt-4 text-lg font-bold text-white">{k.kind}</div>
-            <div className="text-xs text-slate-400">{k.desc}</div>
+            <span className={cn('grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br text-slate-900', k.tone)}><k.icon className="h-6 w-6" /></span>
+            <div className="mt-4 text-lg font-bold text-slate-900">{k.kind}</div>
+            <div className="text-xs text-slate-500">{k.desc}</div>
           </motion.button>
         ))}
       </div>
@@ -79,11 +79,11 @@ export default function Emergency() {
 
       <AnimatePresence>
         {confirm && (
-          <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setConfirm(null)}>
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="glass w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/25 p-4 backdrop-blur-sm" onClick={() => setConfirm(null)}>
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="surface w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
               <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-rose-500/20 text-rose-400"><ShieldAlert className="h-7 w-7" /></span>
-              <h2 className="mt-4 text-lg font-bold text-white">Trigger {confirm} emergency?</h2>
-              <p className="mt-1 text-sm text-slate-400">This will immediately alert everyone in the school. Use only for real emergencies or a sanctioned drill.</p>
+              <h2 className="mt-4 text-lg font-bold text-slate-900">Trigger {confirm} emergency?</h2>
+              <p className="mt-1 text-sm text-slate-500">This will immediately alert everyone in the school. Use only for real emergencies or a sanctioned drill.</p>
               <div className="mt-6 flex gap-2">
                 <button onClick={() => setConfirm(null)} className="btn-ghost flex-1">Cancel</button>
                 <button onClick={() => trigger.mutate(confirm)} disabled={trigger.isPending} className="btn-danger flex-1">{trigger.isPending ? <Spinner /> : <><Send className="h-4 w-4" /> Trigger</>}</button>
@@ -99,8 +99,8 @@ export default function Emergency() {
 function Info({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
   return (
     <Card className="flex items-start gap-3">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/5 text-brand-400">{icon}</span>
-      <div><div className="text-sm font-semibold text-white">{title}</div><div className="text-xs text-slate-500">{desc}</div></div>
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ink-800 text-brand-400">{icon}</span>
+      <div><div className="text-sm font-semibold text-slate-900">{title}</div><div className="text-xs text-slate-500">{desc}</div></div>
     </Card>
   );
 }

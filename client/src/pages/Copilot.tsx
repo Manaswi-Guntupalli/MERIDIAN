@@ -51,14 +51,14 @@ export default function Copilot() {
         <div className="no-scrollbar flex-1 space-y-4 overflow-y-auto p-5">
           {messages.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
-              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-brand-gradient text-ink-950"><Bot className="h-8 w-8" /></div>
+              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-brand-600 text-white"><Bot className="h-8 w-8" /></div>
               <div>
-                <div className="text-lg font-bold text-white">Your operational assistant</div>
-                <div className="text-sm text-slate-400">Try one of these:</div>
+                <div className="text-lg font-bold text-slate-900">Your operational assistant</div>
+                <div className="text-sm text-slate-500">Try one of these:</div>
               </div>
               <div className="flex max-w-lg flex-wrap justify-center gap-2">
                 {suggestions.data?.map((s) => (
-                  <button key={s} onClick={() => send(s)} className="chip glass-hover hover:!text-white"><Sparkles className="h-3 w-3 text-brand-400" /> {s}</button>
+                  <button key={s} onClick={() => send(s)} className="chip surface-hover hover:!text-slate-900"><Sparkles className="h-3 w-3 text-brand-400" /> {s}</button>
                 ))}
               </div>
             </div>
@@ -67,13 +67,13 @@ export default function Copilot() {
           <AnimatePresence initial={false}>
             {messages.map((m, i) => (
               <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={cn('flex gap-3', m.role === 'user' && 'flex-row-reverse')}>
-                <div className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', m.role === 'user' ? 'bg-white/10 text-slate-300' : 'bg-brand-gradient text-ink-950')}>
+                <div className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', m.role === 'user' ? 'bg-ink-700 text-slate-600' : 'bg-brand-600 text-white')}>
                   {m.role === 'user' ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
-                <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm', m.role === 'user' ? 'bg-brand-500/15 text-white' : 'glass text-slate-200')}>
+                <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm', m.role === 'user' ? 'bg-brand-500/15 text-slate-900' : 'surface text-slate-700')}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
                   {m.meta && (
-                    <div className="mt-2.5 flex items-center gap-2 border-t border-white/10 pt-2 text-[0.7rem]">
+                    <div className="mt-2.5 flex items-center gap-2 border-t border-line pt-2 text-[0.7rem]">
                       <ShieldCheck className="h-3.5 w-3.5 text-mint-400" />
                       <span className="text-slate-500">Grounded · {m.meta.source === 'openai' ? 'OpenAI' : 'live rules'}</span>
                       <span className={cn('ml-auto font-semibold', confColor(m.meta.confidence))}>{Math.round(m.meta.confidence * 100)}% conf.</span>
@@ -86,14 +86,14 @@ export default function Copilot() {
 
           {ask.isPending && (
             <div className="flex gap-3">
-              <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-gradient text-ink-950"><Bot className="h-4 w-4" /></div>
-              <div className="glass flex items-center gap-2 rounded-2xl px-4 py-3 text-sm text-slate-400"><Spinner /> Thinking…</div>
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white"><Bot className="h-4 w-4" /></div>
+              <div className="surface flex items-center gap-2 rounded-2xl px-4 py-3 text-sm text-slate-500"><Spinner /> Thinking…</div>
             </div>
           )}
           <div ref={endRef} />
         </div>
 
-        <div className="border-t border-white/[0.06] p-3">
+        <div className="border-t border-line p-3">
           <div className="flex items-center gap-2">
             {voice.supported && (
               <button onClick={voice.listening ? voice.stop : voice.start} className={cn('btn-ghost !px-3', voice.listening && 'animate-pulseGlow !border-rose-400/40 !text-rose-400')}>

@@ -29,15 +29,15 @@ export default function StudentDetail() {
 
   return (
     <div>
-      <Link to="/students" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" /> Back to students</Link>
+      <Link to="/students" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" /> Back to students</Link>
       <PageHeader overline={s.class?.name ?? 'Unassigned'} title={s.name} subtitle={`Admission ${s.admissionNo} · Roll ${s.rollNo}`} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <div className="flex items-center gap-4">
-            <div className="grid h-16 w-16 place-items-center rounded-2xl bg-brand-gradient text-xl font-bold text-ink-950">{initials(s.name)}</div>
+            <div className="grid h-16 w-16 place-items-center rounded-2xl bg-brand-600 text-xl font-bold text-white">{initials(s.name)}</div>
             <div>
-              <div className="text-lg font-bold text-white">{s.name}</div>
+              <div className="text-lg font-bold text-slate-900">{s.name}</div>
               <Badge>{s.class?.name ?? '—'}</Badge>
             </div>
           </div>
@@ -51,9 +51,9 @@ export default function StudentDetail() {
           </div>
 
           {/* Face recognition enrollment */}
-          <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="mt-5 rounded-xl border border-line bg-ink-800/60 p-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white"><ScanFace className="h-4 w-4 text-brand-400" /> Face profile</div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ScanFace className="h-4 w-4 text-brand-400" /> Face profile</div>
               {s.faceEnrolled ? <Badge severity="SUCCESS"><CheckCircle2 className="h-3 w-3" /> {s.faceCount} embeddings</Badge> : <Badge>Not enrolled</Badge>}
             </div>
             <p className="mt-2 text-xs text-slate-500">On-device 128-D embeddings for face attendance. No image is ever stored.</p>
@@ -68,7 +68,7 @@ export default function StudentDetail() {
         <div className="space-y-6 lg:col-span-2">
           <Card>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-bold text-white">Attendance (last 30 records)</h2>
+              <h2 className="font-bold text-slate-900">Attendance (last 30 records)</h2>
               <Badge severity={rate >= 90 ? 'SUCCESS' : rate >= 75 ? 'INFO' : 'WARNING'}>{rate}%</Badge>
             </div>
             <Meter value={rate} tone={rate >= 90 ? 'mint' : rate >= 75 ? 'brand' : 'amber'} />
@@ -80,16 +80,16 @@ export default function StudentDetail() {
           </Card>
 
           <Card>
-            <h2 className="mb-3 font-bold text-white">Fees</h2>
+            <h2 className="mb-3 font-bold text-slate-900">Fees</h2>
             <div className="mb-3 flex items-center justify-between text-sm">
-              <span className="text-slate-400">Outstanding</span>
-              <span className="font-bold text-white">{inr(dues)}</span>
+              <span className="text-slate-500">Outstanding</span>
+              <span className="font-bold text-slate-900">{inr(dues)}</span>
             </div>
             <div className="space-y-2">
               {s.fees.map((f: any) => (
-                <div key={f.id} className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-sm">
-                  <div><div className="font-medium text-white">{f.title}</div><div className="text-xs text-slate-500">Due {f.dueDate}</div></div>
-                  <div className="text-right"><div className="font-semibold text-white">{inr(f.amount - f.paid)}</div><Badge severity={f.status === 'PAID' ? 'SUCCESS' : f.status === 'OVERDUE' ? 'CRITICAL' : 'WARNING'}>{f.status}</Badge></div>
+                <div key={f.id} className="flex items-center justify-between rounded-xl border border-line bg-ink-800/60 px-3 py-2.5 text-sm">
+                  <div><div className="font-medium text-slate-900">{f.title}</div><div className="text-xs text-slate-500">Due {f.dueDate}</div></div>
+                  <div className="text-right"><div className="font-semibold text-slate-900">{inr(f.amount - f.paid)}</div><Badge severity={f.status === 'PAID' ? 'SUCCESS' : f.status === 'OVERDUE' ? 'CRITICAL' : 'WARNING'}>{f.status}</Badge></div>
                 </div>
               ))}
             </div>
@@ -115,7 +115,7 @@ function Row({ icon, label, value }: { icon: React.ReactNode; label: string; val
     <div className="flex items-center gap-3">
       <span className="text-slate-500">{icon}</span>
       <span className="text-slate-500">{label}</span>
-      <span className="ml-auto font-medium text-slate-200">{value}</span>
+      <span className="ml-auto font-medium text-slate-700">{value}</span>
     </div>
   );
 }

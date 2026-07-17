@@ -152,51 +152,12 @@ export function eyeAspectRatio(landmarks: faceapi.FaceLandmarks68): number {
   return (ear(landmarks.getLeftEye()) + ear(landmarks.getRightEye())) / 2;
 }
 
-export const BLINK_EAR = 0.22; // below → eyes closed
-export const MATCH_THRESHOLD = 0.72; // cosine similarity for a confident match
+export const BLINK_EAR = 0.22; // below → eyes closed (legacy fixed threshold)
 
-export interface GalleryEntry {
-  subjectType: 'STUDENT' | 'TEACHER';
-  subjectId: string;
-  name: string;
-  vector: number[];
-}
-
-function cosine(a: number[], b: number[]): number {
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  const d = Math.sqrt(na) * Math.sqrt(nb);
-  return d === 0 ? 0 : dot / d;
-}
-
-export interface LocalMatch {
-  matched: boolean;
-  entry?: GalleryEntry;
-  confidence: number;
-}
-
-// On-device nearest-neighbour match against the enrolled gallery.
-export function matchDescriptor(descriptor: number[], gallery: GalleryEntry[]): LocalMatch {
-  let best: GalleryEntry | undefined;
-  let bestSim = -1;
-  const bySubject = new Map<string, number>();
-  for (const g of gallery) {
-    const sim = cosine(descriptor, g.vector);
-    const key = g.subjectId;
-    if (sim > (bySubject.get(key) ?? -1)) bySubject.set(key, sim);
-    if (sim > bestSim) {
-      bestSim = sim;
-      best = g;
-    }
-  }
-  return { matched: bestSim >= MATCH_THRESHOLD, entry: best, confidence: Math.max(0, bestSim) };
-}
+// NOTE: face MATCHING intentionally lives on the server. Enrolled biometric
+// templates are never shipped to the browser — the kiosk sends the descriptor
+// it computed from its own frame to /face/recognize-batch and gets back only
+// a name + confidence. See server/src/services/face.ts.
 
 // ── Capture quality: size, sharpness proxy (detector score) & brightness ──
 export interface Quality {

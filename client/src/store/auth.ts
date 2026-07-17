@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api, TOKEN_KEY } from '@/lib/api';
+import { disconnectSocket } from '@/lib/socket';
 import type { User } from '@/types';
 
 interface AuthState {
@@ -20,6 +21,7 @@ export const useAuth = create<AuthState>((set) => ({
   },
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
+    disconnectSocket(); // drop the authenticated realtime channel too
     set({ user: null });
   },
   fetchMe: async () => {

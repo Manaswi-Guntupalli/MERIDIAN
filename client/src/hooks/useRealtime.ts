@@ -13,16 +13,21 @@ export function useRealtime() {
 
   useEffect(() => {
     if (!user) return;
-    const socket = connectSocket(user.schoolId);
+    const socket = connectSocket();
+    if (!socket) return;
 
     const onNotification = (n: NotificationItem) => {
       pushToast({ title: n.title, body: n.body, severity: n.severity });
       qc.invalidateQueries({ queryKey: ['notifications'] });
     };
-    const onEvent = () => {
-      qc.invalidateQueries({ queryKey: ['events'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    };
+    // Any appended event can move the numbers — refresh every derived view so
+    // the whole command center is genuinely live, not just the event log.
+    const REACTIVE = [
+      'events', 'stats', 'command-center', 'insights', 'attendance',
+      'predictions', 'twin', 'face', 'fees', 'me-dashboard', 'teacher-dashboard', 'ai-logs',
+      'documents', 'lumen-stats',
+    ];
+    const onEvent = () => REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     const onPresence = (p: { student: string; mode: string }) => {
       pushToast({ title: 'Presence ✓', body: `${p.student} marked present (${p.mode})`, severity: 'SUCCESS' });
       qc.invalidateQueries({ queryKey: ['attendance'] });

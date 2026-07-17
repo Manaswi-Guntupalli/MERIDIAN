@@ -66,7 +66,7 @@ export default function Attendance() {
 
       <Card className="mb-4 flex flex-wrap items-center gap-3">
         <Badge severity="INFO">{roster.data?.date}</Badge>
-        <span className="text-sm text-slate-400">{marked} marked · {present} present</span>
+        <span className="text-sm text-slate-500">{marked} marked · {present} present</span>
         <div className="ml-auto flex gap-2">
           <button onClick={() => bulk.mutate('PRESENT')} className="btn-ghost !py-2 text-xs"><Zap className="h-3.5 w-3.5 text-mint-400" /> All present</button>
           <button onClick={() => bulk.mutate('ABSENT')} className="btn-ghost !py-2 text-xs">All absent</button>
@@ -80,9 +80,9 @@ export default function Attendance() {
           {roster.data.roster.map((r, i) => (
             <motion.div key={r.studentId} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(i * 0.015, 0.25) }}>
               <Card className="flex items-center gap-3 !py-3">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/5 text-xs font-bold text-slate-400">{r.rollNo}</span>
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-ink-800 text-xs font-bold text-slate-500">{r.rollNo}</span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-white">{r.name}</div>
+                  <div className="truncate text-sm font-semibold text-slate-900">{r.name}</div>
                   {r.source && r.source !== 'MANUAL' && <span className="text-[0.65rem] text-cyan-400">via {r.source}</span>}
                 </div>
                 <div className="flex gap-1.5">
@@ -92,7 +92,7 @@ export default function Attendance() {
                       <button
                         key={st.key}
                         onClick={() => mark.mutate({ studentId: r.studentId, status: st.key })}
-                        className={cn('grid h-8 w-8 place-items-center rounded-lg border transition', activeStatus ? st.tone : 'border-white/10 text-slate-600 hover:border-white/20 hover:text-slate-300')}
+                        className={cn('grid h-8 w-8 place-items-center rounded-lg border transition', activeStatus ? st.tone : 'border-line text-slate-400 hover:border-line hover:text-slate-600')}
                         title={st.key}
                       >
                         <st.icon className="h-4 w-4" />

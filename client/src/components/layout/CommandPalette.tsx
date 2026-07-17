@@ -128,6 +128,11 @@ export default function CommandPalette() {
         e.preventDefault();
         setPalette(!paletteOpen);
       }
+      // ⌘/Ctrl+B toggles the sidebar — the familiar editor/ChatGPT shortcut.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        useUI.getState().toggleRail();
+      }
       if (e.key === 'Escape') setPalette(false);
     };
     window.addEventListener('keydown', handler);
@@ -145,20 +150,20 @@ export default function CommandPalette() {
     <AnimatePresence>
       {paletteOpen && (
         <motion.div
-          className="fixed inset-0 z-[90] flex items-start justify-center bg-black/50 px-4 pt-[12vh] backdrop-blur-sm"
+          className="fixed inset-0 z-[90] flex items-start justify-center bg-slate-900/20 px-4 pt-[12vh] backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => setPalette(false)}
         >
           <motion.div
-            className="glass w-full max-w-xl overflow-hidden !rounded-2xl p-0"
+            className="surface w-full max-w-xl overflow-hidden !rounded-2xl p-0"
             initial={{ opacity: 0, y: -16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -16, scale: 0.97 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 border-b border-white/[0.06] px-4">
+            <div className="flex items-center gap-3 border-b border-line px-4">
               <Search className="h-4 w-4 text-slate-500" />
               <input
                 autoFocus
@@ -173,12 +178,12 @@ export default function CommandPalette() {
                   if (e.key === 'Enter') submitFreeText();
                 }}
                 placeholder="Type a command, ask Copilot, or say 'Mark 8A absent'…"
-                className="flex-1 bg-transparent py-4 text-sm text-white outline-none placeholder:text-slate-500"
+                className="flex-1 bg-transparent py-4 text-sm text-slate-900 outline-none placeholder:text-slate-500"
               />
               {voice.supported && (
                 <button
                   onClick={voice.listening ? voice.stop : voice.start}
-                  className={cn('rounded-lg border p-1.5 transition', voice.listening ? 'animate-pulseGlow border-rose-400/40 bg-rose-500/20 text-rose-400' : 'border-white/10 text-slate-400 hover:text-white')}
+                  className={cn('rounded-lg border p-1.5 transition', voice.listening ? 'animate-pulseGlow border-rose-400/40 bg-rose-500/20 text-rose-400' : 'border-line text-slate-500 hover:text-slate-900')}
                   title="Voice command"
                 >
                   <Mic className="h-4 w-4" />
@@ -188,7 +193,7 @@ export default function CommandPalette() {
 
             <div className="no-scrollbar max-h-80 overflow-y-auto p-2">
               {filtered.length === 0 && (
-                <button onClick={submitFreeText} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-slate-300 hover:bg-white/5">
+                <button onClick={submitFreeText} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-slate-600 hover:bg-ink-800">
                   <Sparkles className="h-4 w-4 text-brand-400" />
                   Ask Meridian Copilot: “{q}”
                 </button>
@@ -198,11 +203,11 @@ export default function CommandPalette() {
                   key={c.id}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => c.run()}
-                  className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition', i === active ? 'bg-white/[0.06] text-white' : 'text-slate-300 hover:bg-white/[0.03]')}
+                  className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition', i === active ? 'bg-ink-800 text-slate-900' : 'text-slate-600 hover:bg-ink-800/60')}
                 >
-                  <span className="text-slate-400">{c.icon}</span>
+                  <span className="text-slate-500">{c.icon}</span>
                   <span className="flex-1 truncate">{c.label}</span>
-                  {c.hint && <span className="text-[0.65rem] uppercase tracking-wider text-slate-600">{c.hint}</span>}
+                  {c.hint && <span className="text-[0.65rem] uppercase tracking-wider text-slate-400">{c.hint}</span>}
                   {i === active && <CornerDownLeft className="h-3.5 w-3.5 text-slate-500" />}
                 </button>
               ))}

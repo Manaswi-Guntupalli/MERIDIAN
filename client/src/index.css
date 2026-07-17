@@ -3,7 +3,10 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  /* Spacing rhythm + radii tokens (single source of truth) */
+  --r-card: 14px;
+  --r-control: 9px;
 }
 
 html,
@@ -13,91 +16,163 @@ body,
 }
 
 body {
-  @apply bg-ink-950 text-slate-200 antialiased font-sans;
-  /* Deep-space background: dual accent glows over a faint grid. */
-  background-image:
-    radial-gradient(ellipse 70% 45% at 15% -5%, rgba(139, 92, 246, 0.16), transparent),
-    radial-gradient(ellipse 60% 45% at 100% 5%, rgba(0, 229, 255, 0.1), transparent),
-    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+  @apply bg-canvas text-slate-700 antialiased font-sans;
+  font-feature-settings: 'ss01', 'cv11';
+  /* A whisper of warmth at the top — no gradients, no glow. */
+  background-image: radial-gradient(80% 40% at 50% 0%, rgba(14, 124, 107, 0.035), transparent 70%);
   background-attachment: fixed;
 }
 
 @layer base {
   h1,
   h2,
-  h3,
-  .font-display {
-    font-family: '"Inter Tight"', 'Inter Tight', Inter, system-ui, sans-serif;
-    letter-spacing: -0.02em;
+  h3 {
+    @apply font-display text-slate-900;
+    font-optical-sizing: auto;
+    letter-spacing: -0.015em;
+  }
+  /* Visible, consistent keyboard focus everywhere (a11y). */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500/40 ring-offset-2 ring-offset-canvas;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: rgba(14, 124, 107, 0.16);
   }
 }
 
-/* ── Scrollbar ── */
+/* ── Scrollbar: thin, warm, unobtrusive ── */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.16);
+  background: #D8D3C7;
   border-radius: 999px;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.32);
+  background: #BDB6A6;
   background-clip: content-box;
 }
 
 @layer components {
-  /* Glassmorphism — frosted, with depth. */
-  .glass {
-    @apply rounded-2xl border border-white/[0.06] bg-white/[0.025] backdrop-blur-xl;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 60px -34px rgba(0, 0, 0, 0.95);
+  /* ── Surfaces: paper, not glass ── */
+  .surface {
+    @apply rounded-[var(--r-card)] border border-line bg-surface;
+    box-shadow: 0 1px 2px rgba(28, 32, 31, 0.04);
   }
-  .glass-hover {
-    @apply transition-all duration-300 hover:border-brand-500/25 hover:bg-white/[0.045] hover:shadow-glow;
+  .surface-hover {
+    @apply transition-all duration-200 hover:-translate-y-[1px] hover:border-ink-600/60 hover:shadow-md;
   }
   .card {
-    @apply glass p-5;
+    @apply surface p-5;
   }
-  .gradient-text {
-    @apply bg-brand-gradient bg-clip-text text-transparent;
+  /* A quiet inset well for secondary content */
+  .well {
+    @apply rounded-[10px] border border-line bg-ink-800/60;
   }
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand-400/50;
+
+  /* ── Typography helpers ── */
+  .title-xl {
+    @apply font-display text-[2rem] font-semibold leading-[1.15] tracking-[-0.02em] text-slate-900 lg:text-[2.4rem];
   }
-  .btn-primary {
-    @apply btn bg-brand-gradient text-ink-950 hover:shadow-glow hover:brightness-110;
-  }
-  .btn-ghost {
-    @apply btn border border-white/10 bg-white/[0.02] text-slate-200 hover:bg-white/[0.06] hover:border-white/20;
-  }
-  .btn-danger {
-    @apply btn bg-rose-500 text-white hover:bg-rose-400;
-  }
-  .input {
-    @apply w-full rounded-xl border border-white/10 bg-ink-850/70 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-400/60 focus:ring-2 focus:ring-brand-400/20;
-  }
-  .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-slate-300;
+  .title-md {
+    @apply font-display text-lg font-semibold text-slate-900;
   }
   .label {
-    @apply text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-slate-500;
+    @apply text-[0.7rem] font-semibold uppercase tracking-[0.09em] text-slate-400;
   }
-  /* Live "AI online" pulse dot. */
+  .eyebrow {
+    @apply text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-brand-500;
+  }
+  .gradient-text {
+    @apply text-brand-600;
+  }
+
+  /* ── Controls ── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[var(--r-control)] px-3.5 py-2.5 text-[0.82rem] font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-45;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white shadow-xs hover:bg-brand-700 active:translate-y-px;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-surface text-slate-700 shadow-xs hover:bg-ink-800 hover:text-slate-900 active:translate-y-px;
+  }
+  .btn-quiet {
+    @apply btn text-slate-500 hover:bg-ink-800 hover:text-slate-900;
+  }
+  .btn-danger {
+    @apply btn bg-rose-400 text-white shadow-xs hover:bg-rose-500 active:translate-y-px;
+  }
+
+  .input {
+    @apply w-full rounded-[var(--r-control)] border border-line bg-surface px-3 py-2.5 text-sm text-slate-800 shadow-xs outline-none transition placeholder:text-slate-400 focus:border-brand-500/60 focus:shadow-ring;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-ink-800/70 px-2.5 py-1 text-[0.72rem] font-medium text-slate-600;
+  }
+
+  /* ── Depth (the calm kind of 3D) ──
+     Physical, believable depth: things rise a couple of pixels toward you and
+     cast a longer shadow — the Stripe/Linear trick. No glows, no glass. */
+  .lift-3d {
+    transition:
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+  }
+  .lift-3d:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 12px 28px -10px rgb(15 23 42 / 0.16),
+      0 4px 10px -4px rgb(15 23 42 / 0.08);
+  }
+  .lift-3d:active {
+    transform: translateY(0) scale(0.995);
+  }
+
+  /* Paper tilt for document previews: a whisper of perspective on hover, as
+     if picking the sheet up off the desk. */
+  .tilt-3d {
+    transform: perspective(1400px);
+    transition:
+      transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+  }
+  .tilt-3d:hover {
+    transform: perspective(1400px) rotateX(1.3deg) rotateY(-1.5deg) translateY(-3px);
+    box-shadow:
+      0 18px 40px -14px rgb(15 23 42 / 0.2),
+      0 6px 14px -6px rgb(15 23 42 / 0.1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lift-3d,
+    .lift-3d:hover,
+    .tilt-3d,
+    .tilt-3d:hover {
+      transform: none;
+      transition: none;
+    }
+  }
+
+  /* Live status dot */
   .live-dot {
-    @apply relative inline-flex h-2 w-2 rounded-full bg-mint-400;
+    @apply relative inline-flex h-1.5 w-1.5 rounded-full bg-mint-400;
   }
   .live-dot::after {
     content: '';
     @apply absolute inset-0 rounded-full bg-mint-400;
-    animation: pulseGlow 2s ease-in-out infinite;
-    box-shadow: 0 0 0 4px rgba(0, 208, 132, 0.15);
+    animation: pulseGlow 2.4s ease-in-out infinite;
+    box-shadow: 0 0 0 3px rgba(30, 138, 99, 0.14);
   }
 }
 
@@ -105,8 +180,9 @@ body {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  /* Tabular figures for any number that changes */
   .tnum {
-    font-family: '"IBM Plex Mono"', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
   }
   .shimmer {
@@ -118,7 +194,17 @@ body {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
-    animation: shimmer 1.6s infinite;
+    background: linear-gradient(90deg, transparent, rgba(28, 32, 31, 0.045), transparent);
+    animation: shimmer 1.5s infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

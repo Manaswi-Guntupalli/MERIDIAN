@@ -4,56 +4,83 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Meridian — "AI Mission Control" deep-space palette.
+        /**
+         * "Calm institutional" — a warm, light, education-first system.
+         * Every accent's `400` step is tuned to be ACCESSIBLE as text on the
+         * warm canvas, while `/10` gives a tint and `/25` a hairline. One token
+         * therefore serves text, fill and border without extra scales.
+         */
+
+        // Neutral surfaces (warm, never pure grey — greys read cold/clinical)
         ink: {
-          950: '#050507', // page background (deep space)
-          900: '#0A0A0F', // sidebar / deepest surface
-          850: '#0E0E12', // cards
-          800: '#16161D', // secondary surface
-          700: '#1E1E27',
-          600: '#2A2A36',
+          950: '#FBFAF7', // canvas — warm off-white page
+          900: '#FFFFFF', // raised surface / sidebar
+          850: '#FFFFFF', // cards
+          800: '#F3F1EB', // subtle fill (hover, wells)
+          700: '#E7E3DA', // stronger fill
+          600: '#D8D3C7',
         },
+        line: '#E8E4DA', // warm hairline divider
+        canvas: '#FBFAF7',
+        surface: '#FFFFFF',
+
+        // Primary — deep teal. Trustworthy, calm, institutional.
         brand: {
-          // AI Purple
-          DEFAULT: '#8B5CF6',
-          50: '#f5f3ff',
-          400: '#a78bfa',
-          500: '#8B5CF6',
-          600: '#7C3AED',
+          50: '#EDF6F4',
+          100: '#D2EAE4',
+          200: '#A6D6CB',
+          400: '#0E7C6B',
+          500: '#0E7C6B',
+          600: '#0A6558',
+          700: '#084E45',
         },
-        cyan: { DEFAULT: '#00E5FF', 400: '#00E5FF', 500: '#00b8d4' },
-        mint: { DEFAULT: '#00D084', 400: '#00D084' },
-        amber: { DEFAULT: '#FFB020', 400: '#FFB020' },
-        rose: { DEFAULT: '#FF4D6D', 400: '#FF4D6D' },
+        // Secondary — soft emerald (growth, success)
+        mint: { DEFAULT: '#1E8A63', 400: '#1E8A63', 500: '#177355' },
+        // Info — deep aqua
+        cyan: { DEFAULT: '#1F6F8B', 400: '#1F6F8B', 500: '#195A72' },
+        // Warning — bronzed amber (accessible on light)
+        amber: { DEFAULT: '#A76A12', 400: '#A76A12', 500: '#8A570D' },
+        // Danger — muted brick, never alarming red
+        rose: { DEFAULT: '#C0453B', 400: '#C0453B', 500: '#A33830' },
+        // Accent — warm coral, used sparingly for human moments
+        coral: { DEFAULT: '#E86A4F', 400: '#D2543A', 500: '#B84630' },
+        // Highlight — golden
+        gold: { DEFAULT: '#C98A21', 400: '#C98A21', 500: '#A8721A' },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['"Inter Tight"', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        // Fraunces (optical serif) for titles & figures — the signature.
+        display: ['Fraunces', 'Georgia', 'serif'],
+        sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+      },
+      borderRadius: {
+        // Restrained, considered radii — not pill-everything.
+        DEFAULT: '8px',
+        md: '10px',
+        lg: '12px',
+        xl: '14px',
+        '2xl': '18px',
       },
       boxShadow: {
-        glow: '0 0 0 1px rgba(139,92,246,0.25), 0 16px 50px -12px rgba(124,58,237,0.5)',
-        'glow-cyan': '0 0 0 1px rgba(0,229,255,0.2), 0 16px 50px -12px rgba(0,229,255,0.35)',
-        card: '0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 48px -32px rgba(0,0,0,0.9)',
-      },
-      backgroundImage: {
-        'brand-gradient': 'linear-gradient(135deg, #7C3AED 0%, #00E5FF 100%)',
-        'brand-radial': 'radial-gradient(120% 120% at 0% 0%, #8B5CF6 0%, #00E5FF 100%)',
-        'grid-fade': 'radial-gradient(ellipse at top, rgba(139,92,246,0.16), transparent 60%)',
+        // Layered, physical depth — no coloured glow.
+        xs: '0 1px 2px rgba(28, 32, 31, 0.04)',
+        sm: '0 1px 2px rgba(28, 32, 31, 0.05), 0 1px 3px rgba(28, 32, 31, 0.04)',
+        md: '0 2px 4px rgba(28, 32, 31, 0.04), 0 4px 12px rgba(28, 32, 31, 0.06)',
+        lg: '0 4px 8px rgba(28, 32, 31, 0.04), 0 12px 28px rgba(28, 32, 31, 0.08)',
+        xl: '0 8px 16px rgba(28, 32, 31, 0.05), 0 24px 48px rgba(28, 32, 31, 0.10)',
+        ring: '0 0 0 4px rgba(14, 124, 107, 0.12)',
       },
       keyframes: {
-        'fade-up': { '0%': { opacity: 0, transform: 'translateY(8px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+        'fade-up': { '0%': { opacity: 0, transform: 'translateY(6px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
         shimmer: { '100%': { transform: 'translateX(100%)' } },
-        pulseGlow: { '0%,100%': { opacity: 0.5 }, '50%': { opacity: 1 } },
+        pulseGlow: { '0%,100%': { opacity: 0.45 }, '50%': { opacity: 1 } },
         'spin-slow': { to: { transform: 'rotate(360deg)' } },
-        float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-6px)' } },
       },
       animation: {
-        'fade-up': 'fade-up 0.4s ease both',
-        shimmer: 'shimmer 1.6s infinite',
+        'fade-up': 'fade-up 0.35s cubic-bezier(0.16,1,0.3,1) both',
+        shimmer: 'shimmer 1.5s infinite',
         pulseGlow: 'pulseGlow 2.4s ease-in-out infinite',
         'spin-slow': 'spin-slow 8s linear infinite',
-        float: 'float 4s ease-in-out infinite',
       },
     },
   },

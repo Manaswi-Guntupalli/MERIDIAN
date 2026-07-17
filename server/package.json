@@ -13,18 +13,22 @@
     "db:setup": "prisma db push && prisma generate",
     "db:reset": "prisma db push --force-reset && prisma generate",
     "seed": "tsx prisma/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lumen:fixtures": "tsx scripts/generate-fixtures.ts",
+    "lumen:bench": "tsx scripts/benchmark-lumen.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.2",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.5",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
@@ -32,7 +36,10 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.77.0",
+    "pdfjs-dist": "^6.1.200",
+    "sharp": "^0.35.3",
     "socket.io": "^4.8.1",
+    "tesseract.js": "^7.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -45,6 +52,8 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.17.6",
+    "pdfkit": "^0.19.1",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

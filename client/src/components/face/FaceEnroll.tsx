@@ -9,6 +9,7 @@ import { useWebcam } from '@/hooks/useWebcam';
 import { loadFaceModels, detectSingle, estimatePose, classifyPose, assessQuality, type Pose } from '@/lib/face';
 import { Spinner } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { T } from '@/constants/theme';
 
 // Guided enrollment: capture varied poses, quality-gate each frame, build
 // 128-D embeddings on-device and store only the vectors.
@@ -179,10 +180,10 @@ export default function FaceEnroll({
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (box) {
-      ctx.strokeStyle = '#00E5FF';
+      ctx.strokeStyle = T.brand;
       ctx.lineWidth = 3;
-      ctx.shadowColor = '#00E5FF';
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
       roundRect(ctx, box.x, box.y, box.width, box.height, 14);
       ctx.stroke();
     }
@@ -201,14 +202,14 @@ export default function FaceEnroll({
   };
 
   return (
-    <div className="fixed inset-0 z-[85] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="glass max-h-[92vh] w-full max-w-3xl overflow-y-auto overflow-x-hidden !p-0" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+    <div className="fixed inset-0 z-[85] grid place-items-center bg-slate-900/25 p-4 backdrop-blur-sm" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="surface max-h-[92vh] w-full max-w-3xl overflow-y-auto overflow-x-hidden !p-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div className="flex items-center gap-2">
             <ScanFace className="h-5 w-5 text-brand-400" />
-            <h2 className="font-bold text-white">Enroll face — {name}</h2>
+            <h2 className="font-bold text-slate-900">Enroll face — {name}</h2>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
         </div>
 
         {succeeded !== null ? (
@@ -217,8 +218,8 @@ export default function FaceEnroll({
               <CheckCircle2 className="h-8 w-8" />
             </motion.span>
             <div>
-              <h3 className="text-lg font-bold text-white">{name} is enrolled</h3>
-              <p className="mt-1 text-sm text-slate-400">{succeeded} on-device face embeddings stored. Now step in front of the kiosk and it will recognise you.</p>
+              <h3 className="text-lg font-bold text-slate-900">{name} is enrolled</h3>
+              <p className="mt-1 text-sm text-slate-500">{succeeded} on-device face embeddings stored. Now step in front of the kiosk and it will recognise you.</p>
             </div>
             <div className="flex items-center gap-1.5 rounded-lg border border-mint-400/20 bg-mint-400/5 px-3 py-2 text-[0.7rem] text-mint-400">
               <ShieldCheck className="h-3.5 w-3.5" /> No photo was saved — only the mathematical vectors.
@@ -233,7 +234,7 @@ export default function FaceEnroll({
         ) : (
         <div className="grid gap-0 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           {/* Camera */}
-          <div className="relative aspect-[4/3] min-w-0 overflow-hidden bg-ink-900">
+          <div className="relative aspect-[4/3] min-w-0 overflow-hidden bg-slate-900">
             <video ref={videoRef} className="absolute inset-0 h-full w-full -scale-x-100 object-cover" muted playsInline />
             <canvas ref={canvasRef} className="absolute inset-0 h-full w-full -scale-x-100 object-cover" />
             {/* scanning radar */}
@@ -243,7 +244,7 @@ export default function FaceEnroll({
               </div>
             )}
             {(!ready || !modelsReady) && (
-              <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">
+              <div className="absolute inset-0 grid place-items-center text-sm text-slate-500">
                 <div className="flex flex-col items-center gap-2"><Loader2 className="h-6 w-6 animate-spin text-brand-400" />{error ?? status}</div>
               </div>
             )}
@@ -261,20 +262,20 @@ export default function FaceEnroll({
           <div className="min-w-0 p-5">
             <div className="mb-4 flex items-center justify-between">
               <span className="label">Capture guide</span>
-              <span className="tnum text-xs text-slate-400">{totalCaptured}/{totalTarget}</span>
+              <span className="tnum text-xs text-slate-500">{totalCaptured}/{totalTarget}</span>
             </div>
             <div className="space-y-2">
               {STEPS.map((s, i) => {
                 const complete = counts[i] >= s.target;
                 const active = i === stepIdx && !done;
                 return (
-                  <div key={s.pose} className={cn('flex items-center gap-3 rounded-xl border p-2.5 transition', active ? 'border-brand-400/40 bg-brand-500/10' : complete ? 'border-mint-400/30 bg-mint-400/5' : 'border-white/[0.06]')}>
-                    <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold', complete ? 'bg-mint-400/20 text-mint-400' : active ? 'bg-brand-500/20 text-brand-400' : 'bg-white/5 text-slate-500')}>
+                  <div key={s.pose} className={cn('flex items-center gap-3 rounded-xl border p-2.5 transition', active ? 'border-brand-400/40 bg-brand-500/10' : complete ? 'border-mint-400/30 bg-mint-400/5' : 'border-line')}>
+                    <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold', complete ? 'bg-mint-400/20 text-mint-400' : active ? 'bg-brand-500/20 text-brand-400' : 'bg-ink-800 text-slate-500')}>
                       {complete ? <Check className="h-4 w-4" /> : i + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className={cn('text-sm font-semibold', active || complete ? 'text-white' : 'text-slate-400')}>{s.label}</div>
-                      {active && <div className="text-[0.7rem] text-slate-400">{s.hint}</div>}
+                      <div className={cn('text-sm font-semibold', active || complete ? 'text-slate-900' : 'text-slate-500')}>{s.label}</div>
+                      {active && <div className="text-[0.7rem] text-slate-500">{s.hint}</div>}
                     </div>
                     <span className="tnum text-[0.7rem] text-slate-500">{counts[i]}/{s.target}</span>
                   </div>

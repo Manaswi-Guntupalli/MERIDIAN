@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Search, Plus, GraduationCap, X } from 'lucide-react';
+import { Search, Plus, GraduationCap, X, ScanFace, ChevronRight } from 'lucide-react';
 import { api, apiError } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
-import { Card, Badge, EmptyState, LoadingScreen, Spinner } from '@/components/ui';
+import { Badge, EmptyState, LoadingScreen, Spinner } from '@/components/ui';
+import { Table, CellIdentity } from '@/components/ui/Table';
 import { initials } from '@/lib/utils';
 import type { StudentRow, ClassRow } from '@/types';
 
 export default function Students() {
   const user = useAuth((s) => s.user)!;
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { pushToast } = useUI();
   const [q, setQ] = useState('');
@@ -36,39 +38,58 @@ export default function Students() {
         actions={canEdit && <button onClick={() => setShowAdd(true)} className="btn-primary"><Plus className="h-4 w-4" /> Add student</button>}
       />
 
-      <Card className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex flex-1 items-center gap-2 rounded-xl border border-white/10 bg-ink-850/60 px-3">
-          <Search className="h-4 w-4 text-slate-500" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name…" className="w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-slate-500" />
+      {/* Toolbar — a bare control strip, not a card wrapping a card */}
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-slate-400" strokeWidth={2} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search students…" className="input pl-9" />
         </div>
-        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="input sm:w-48">
+        <select value={classId} onChange={(e) => setClassId(e.target.value)} className="input sm:w-40">
           <option value="">All classes</option>
           {classes.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-      </Card>
+        <span className="text-[0.78rem] text-slate-400 sm:ml-auto">
+          {students.data?.length ?? 0} student{students.data?.length === 1 ? '' : 's'}
+        </span>
+      </div>
 
       {students.isLoading ? (
         <LoadingScreen />
-      ) : students.data?.length ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {students.data.map((s, i) => (
-            <motion.div key={s.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i * 0.02, 0.3) }}>
-              <Link to={`/students/${s.id}`} className="glass glass-hover flex items-center gap-3 p-4">
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-gradient text-sm font-bold text-ink-950">{initials(s.name)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-white">{s.name}</div>
-                  <div className="text-xs text-slate-500">Roll {s.rollNo} · {s.admissionNo}</div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge>{s.class?.name ?? '—'}</Badge>
-                  {s.bloodGroup && <span className="text-[0.65rem] text-slate-500">{s.bloodGroup}</span>}
-                </div>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
       ) : (
-        <EmptyState icon={<GraduationCap className="h-8 w-8" />} title="No students found" hint="Try a different search or add a new student." />
+        <Table
+          rows={students.data ?? []}
+          rowKey={(s) => s.id}
+          onRowClick={(s) => navigate(`/students/${s.id}`)}
+          empty={<EmptyState icon={<GraduationCap className="h-7 w-7" />} title="No students found" hint="Try a different search, or add a new student." />}
+          columns={[
+            {
+              key: 'name',
+              header: 'Student',
+              cell: (s) => <CellIdentity initials={initials(s.name)} title={s.name} sub={s.admissionNo} />,
+            },
+            { key: 'roll', header: 'Roll', align: 'right', width: '70px', cell: (s) => <span className="tnum text-slate-500">{s.rollNo}</span> },
+            { key: 'class', header: 'Class', width: '90px', cell: (s) => <Badge>{s.class?.name ?? '—'}</Badge> },
+            { key: 'blood', header: 'Blood', width: '80px', cell: (s) => <span className="tnum text-slate-500">{s.bloodGroup ?? '—'}</span> },
+            {
+              key: 'face',
+              header: 'Face ID',
+              width: '110px',
+              cell: (s) =>
+                (s as any).faceEnrolled ? (
+                  <span className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-mint-400"><ScanFace className="h-3.5 w-3.5" /> Enrolled</span>
+                ) : (
+                  <span className="text-[0.75rem] text-slate-300">Not enrolled</span>
+                ),
+            },
+            {
+              key: 'go',
+              header: '',
+              align: 'right',
+              width: '44px',
+              cell: () => <ChevronRight className="ml-auto h-4 w-4 text-slate-300" />,
+            },
+          ]}
+        />
       )}
 
       {showAdd && <AddStudentModal classes={classes.data ?? []} onClose={() => setShowAdd(false)} onDone={() => { qc.invalidateQueries({ queryKey: ['students'] }); pushToast({ title: 'Student added', severity: 'SUCCESS' }); }} />}
@@ -94,11 +115,11 @@ function AddStudentModal({ classes, onClose, onDone }: { classes: ClassRow[]; on
   });
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/25 p-4 backdrop-blur-sm" onClick={onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="surface w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Add student</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-white"><X className="h-4 w-4" /></button>
+          <h2 className="text-lg font-bold text-slate-900">Add student</h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
         </div>
         <div className="space-y-3">
           <div><label className="label mb-1 block">Full name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

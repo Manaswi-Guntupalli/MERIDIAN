@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { T } from '@/constants/theme';
 
 interface Sub {
   label: string;
@@ -21,11 +22,11 @@ export default function HealthGauge({ value, subs }: { value: number; subs: Sub[
         <svg width={size} height={size} className="-rotate-90">
           <defs>
             <linearGradient id="healthGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#7C3AED" />
-              <stop offset="100%" stopColor="#00E5FF" />
+              <stop offset="0%" stopColor={T.brand} />
+              <stop offset="100%" stopColor={T.mint} />
             </linearGradient>
           </defs>
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.well} strokeWidth={stroke} />
           <motion.circle
             cx={size / 2}
             cy={size / 2}
@@ -45,7 +46,7 @@ export default function HealthGauge({ value, subs }: { value: number; subs: Sub[
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.3 }}
-            className="tnum text-5xl font-extrabold text-white"
+            className="tnum text-5xl font-extrabold text-slate-900"
           >
             {value}
           </motion.span>
@@ -54,17 +55,17 @@ export default function HealthGauge({ value, subs }: { value: number; subs: Sub[
       </div>
 
       <div className="w-full flex-1">
-        <div className="mb-3 text-sm text-slate-400">{status}</div>
+        <div className="mb-3 text-sm text-slate-500">{status}</div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-3">
           {subs.map((s, i) => (
             <div key={s.label}>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-slate-400">{s.label}</span>
-                <span className="tnum font-semibold text-slate-200">{s.value}%</span>
+                <span className="text-slate-500">{s.label}</span>
+                <span className="tnum font-semibold text-slate-700">{s.value}%</span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
                 <motion.div
-                  className={cn('h-full rounded-full', s.value >= 85 ? 'bg-mint-400' : s.value >= 70 ? 'bg-brand-gradient' : 'bg-amber-400')}
+                  className={cn('h-full rounded-full', s.value >= 85 ? 'bg-mint-400' : s.value >= 70 ? 'bg-brand-600' : 'bg-amber-400')}
                   initial={{ width: 0 }}
                   animate={{ width: `${s.value}%` }}
                   transition={{ delay: 0.2 + i * 0.08, duration: 0.7, ease: 'easeOut' }}

@@ -6,11 +6,12 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import { useWebcam } from '@/hooks/useWebcam';
-import { loadFaceModels, detectAll, detectLandmarksOnly, matchDescriptor, eyeAspectRatio, BlinkDetector, type GalleryEntry } from '@/lib/face';
+import { loadFaceModels, detectAll, detectLandmarksOnly, eyeAspectRatio, BlinkDetector } from '@/lib/face';
 import PageHeader from '@/components/PageHeader';
 import { Card, Badge, StatTile, LoadingScreen, EmptyState, Meter } from '@/components/ui';
 import FaceEnroll from '@/components/face/FaceEnroll';
 import { cn, initials, timeAgo, confColor } from '@/lib/utils';
+import { FACE } from '@/constants/theme';
 
 const TABS = [
   { id: 'kiosk', label: 'Live Kiosk', icon: Camera },
@@ -27,9 +28,9 @@ export default function FaceRecognition() {
         title="Face Recognition Attendance"
         subtitle="On-device neural embeddings + liveness. Recognises enrolled students in real time — zero raw biometric images ever stored."
       />
-      <div className="mb-6 inline-flex rounded-xl border border-white/10 p-1">
+      <div className="mb-6 inline-flex rounded-xl border border-line p-1">
         {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={cn('flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition', tab === t.id ? 'bg-brand-gradient text-ink-950' : 'text-slate-400 hover:text-white')}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={cn('flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition', tab === t.id ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-900')}>
             <t.icon className="h-4 w-4" /> {t.label}
           </button>
         ))}
@@ -62,18 +63,18 @@ function LiveKiosk() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [dims, setDims] = useState({ w: 640, h: 480 });
 
-  const galleryRef = useRef<GalleryEntry[]>([]);
   const runFlag = useRef(false);
   const blinkRef = useRef(new BlinkDetector());
   const markedRef = useRef<Map<string, number>>(new Map());
 
-  const gallery = useQuery({
-    queryKey: ['face', 'gallery'],
-    queryFn: async () => (await api.get('/face/gallery')).data.gallery as GalleryEntry[],
+  // Enrollment coverage only — biometric templates are NEVER sent to the
+  // browser. Recognition happens server-side via /face/recognize-batch.
+  const status = useQuery({
+    queryKey: ['face', 'status'],
+    queryFn: async () => (await api.get('/face/status')).data,
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  useEffect(() => { if (gallery.data) galleryRef.current = gallery.data; }, [gallery.data]);
 
   const boot = async () => {
     await loadFaceModels();
@@ -114,24 +115,40 @@ function LiveKiosk() {
         const armed = blinkRef.current.armed;
         setLive(armed);
 
-        // Heavier recognition pass, throttled.
-        if (t - lastRecog > 350) {
+        // Heavier recognition pass, throttled. Descriptors go to the server —
+        // the enrolled biometric gallery never comes to the browser.
+        if (t - lastRecog > 400) {
           lastRecog = t;
           const detections = await detectAll(video);
-          const out: LiveFace[] = detections.map((d) => {
-            const m = matchDescriptor(d.descriptor, galleryRef.current);
-            const face: LiveFace = { box: d.box, name: m.matched ? m.entry!.name : 'Unknown', known: m.matched, confidence: m.confidence, subjectId: m.entry?.subjectId };
-            // Mark known + live faces, once per ~25s.
-            if (m.matched && m.entry && blinkRef.current.armed) {
-              const lastMark = markedRef.current.get(m.entry.subjectId) ?? 0;
-              if (Date.now() - lastMark > 25000) {
-                markedRef.current.set(m.entry.subjectId, Date.now());
-                markAttendance(d.descriptor, true);
-              }
+          if (detections.length) {
+            try {
+              const { data } = await api.post('/face/recognize-batch', {
+                vectors: detections.slice(0, 12).map((d) => d.descriptor),
+              });
+              const out: LiveFace[] = detections.slice(0, 12).map((d, i) => {
+                const m = data.results[i];
+                if (m?.matched && blinkRef.current.armed) {
+                  const lastMark = markedRef.current.get(m.subjectId) ?? 0;
+                  if (Date.now() - lastMark > 25000) {
+                    markedRef.current.set(m.subjectId, Date.now());
+                    markAttendance(d.descriptor, true);
+                  }
+                }
+                return {
+                  box: d.box,
+                  name: m?.matched ? m.name : 'Unknown',
+                  known: !!m?.matched,
+                  confidence: m?.confidence ?? 0,
+                  subjectId: m?.subjectId ?? undefined,
+                };
+              });
+              setFaces(out);
+            } catch {
+              /* transient network error — keep last frame's labels */
             }
-            return face;
-          });
-          setFaces(out);
+          } else {
+            setFaces([]);
+          }
         }
       }
       if (runFlag.current) requestAnimationFrame(loop);
@@ -141,13 +158,13 @@ function LiveKiosk() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, modelsReady]);
 
-  const enrolledCount = gallery.data ? new Set(gallery.data.map((g) => g.subjectId)).size : 0;
+  const enrolledCount = status.data?.enrolledStudents ?? 0;
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2">
         <Card className="!p-3">
-          <div className="relative overflow-hidden rounded-xl bg-ink-900" style={{ aspectRatio: '4/3' }}>
+          <div className="relative overflow-hidden rounded-xl bg-slate-900" style={{ aspectRatio: '4/3' }}>
             <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
 
             {/* Face overlays (HTML, positioned by % of the video frame) */}
@@ -160,13 +177,13 @@ function LiveKiosk() {
                   top: `${(f.box.y / dims.h) * 100}%`,
                   width: `${(f.box.width / dims.w) * 100}%`,
                   height: `${(f.box.height / dims.h) * 100}%`,
-                  borderColor: f.known ? (f.confidence > 0.8 ? '#00D084' : '#FFB020') : '#FF4D6D',
-                  boxShadow: `0 0 16px ${f.known ? '#00D08455' : '#FF4D6D55'}`,
+                  borderColor: f.known ? (f.confidence > 0.8 ? FACE.known : FACE.low) : FACE.unknown,
+                  boxShadow: `0 2px 10px ${f.known ? 'rgba(30,138,99,0.28)' : 'rgba(192,69,59,0.28)'}`,
                 }}
               >
                 <span
-                  className="absolute -top-6 left-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold text-ink-950"
-                  style={{ background: f.known ? (f.confidence > 0.8 ? '#00D084' : '#FFB020') : '#FF4D6D' }}
+                  className="absolute -top-6 left-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold text-white"
+                  style={{ background: f.known ? (f.confidence > 0.8 ? FACE.known : FACE.low) : FACE.unknown }}
                 >
                   {f.name} {f.known ? `· ${Math.round(f.confidence * 100)}%` : ''}
                 </span>
@@ -209,7 +226,7 @@ function LiveKiosk() {
               </div>
             )}
             {running && !modelsReady && (
-              <div className="absolute inset-0 grid place-items-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin text-brand-400" /></div>
+              <div className="absolute inset-0 grid place-items-center text-slate-500"><Loader2 className="h-6 w-6 animate-spin text-brand-400" /></div>
             )}
 
             {/* status bar */}
@@ -231,18 +248,18 @@ function LiveKiosk() {
 
       {/* Live recognized log */}
       <Card className="!p-0">
-        <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4">
-          <span className="live-dot" /><h2 className="font-bold text-white">Recognised now</h2>
+        <div className="flex items-center gap-2 border-b border-line px-5 py-4">
+          <span className="live-dot" /><h2 className="font-bold text-slate-900">Recognised now</h2>
         </div>
         <div className="max-h-[28rem] space-y-2 overflow-y-auto p-3 no-scrollbar">
           <AnimatePresence initial={false}>
             {log.length === 0 ? (
               <div className="py-16 text-center text-sm text-slate-500">Step in front of the camera and blink to mark attendance.</div>
             ) : log.map((e, i) => (
-              <motion.div key={e.at + i} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-gradient text-xs font-bold text-ink-950">{initials(e.name)}</div>
+              <motion.div key={e.at + i} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3 rounded-xl border border-line bg-ink-800/60 p-3">
+                <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-xs font-bold text-white">{initials(e.name)}</div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-white">{e.name}</div>
+                  <div className="truncate text-sm font-semibold text-slate-900">{e.name}</div>
                   <div className="text-xs text-slate-500">{timeAgo(e.at)}</div>
                 </div>
                 <div className="flex flex-col items-end gap-0.5">
@@ -271,10 +288,10 @@ function Enrollment() {
   const students = (data?.students ?? []).filter((s) => s.name.toLowerCase().includes(q.toLowerCase()));
 
   const Row = ({ p, type }: { p: any; type: 'STUDENT' | 'TEACHER' }) => (
-    <div className="glass flex items-center gap-3 p-3">
-      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-gradient text-xs font-bold text-ink-950">{initials(p.name)}</div>
+    <div className="surface flex items-center gap-3 p-3">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-xs font-bold text-white">{initials(p.name)}</div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-white">{p.name}</div>
+        <div className="truncate text-sm font-semibold text-slate-900">{p.name}</div>
         <div className="text-xs text-slate-500">{type === 'STUDENT' ? `${p.className ?? '—'} · Roll ${p.rollNo}` : p.department}</div>
       </div>
       {p.enrolled ? (
@@ -301,11 +318,11 @@ function Enrollment() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
-          <h3 className="mb-2 font-bold text-white">Teachers</h3>
+          <h3 className="mb-2 font-bold text-slate-900">Teachers</h3>
           <div className="space-y-2">{data?.teachers.map((t) => <Row key={t.id} p={t} type="TEACHER" />)}</div>
         </div>
         <div>
-          <h3 className="mb-2 font-bold text-white">Students</h3>
+          <h3 className="mb-2 font-bold text-slate-900">Students</h3>
           <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1 no-scrollbar">
             {students.length ? students.map((s) => <Row key={s.id} p={s} type="STUDENT" />) : <EmptyState title="No students" />}
           </div>
@@ -343,24 +360,24 @@ function Insights() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <h3 className="mb-3 font-bold text-white">Enrollment coverage</h3>
-          <div className="mb-2 flex items-center justify-between text-sm"><span className="text-slate-400">Students with a face profile</span><span className="font-bold text-white">{s.coverage}%</span></div>
+          <h3 className="mb-3 font-bold text-slate-900">Enrollment coverage</h3>
+          <div className="mb-2 flex items-center justify-between text-sm"><span className="text-slate-500">Students with a face profile</span><span className="font-bold text-slate-900">{s.coverage}%</span></div>
           <Meter value={s.coverage} tone={s.coverage >= 80 ? 'mint' : s.coverage >= 40 ? 'brand' : 'amber'} />
           <div className="mt-4 grid grid-cols-2 gap-3 text-center">
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="tnum text-2xl font-extrabold text-white">{s.embeddings}</div><div className="label">Total embeddings</div></div>
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="tnum text-2xl font-extrabold text-white">{s.enrolledTeachers}/{s.totalTeachers}</div><div className="label">Staff enrolled</div></div>
+            <div className="rounded-xl border border-line bg-ink-800/60 p-3"><div className="tnum text-2xl font-extrabold text-slate-900">{s.embeddings}</div><div className="label">Total embeddings</div></div>
+            <div className="rounded-xl border border-line bg-ink-800/60 p-3"><div className="tnum text-2xl font-extrabold text-slate-900">{s.enrolledTeachers}/{s.totalTeachers}</div><div className="label">Staff enrolled</div></div>
           </div>
         </Card>
 
         <Card className="!p-0">
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-4"><AlertTriangle className="h-4 w-4 text-amber-400" /><h3 className="font-bold text-white">Unknown / spoof log</h3></div>
+          <div className="flex items-center gap-2 border-b border-line px-5 py-4"><AlertTriangle className="h-4 w-4 text-amber-400" /><h3 className="font-bold text-slate-900">Unknown / spoof log</h3></div>
           <div className="max-h-72 space-y-2 overflow-y-auto p-3 no-scrollbar">
             {unknown.data?.length ? unknown.data.map((e) => (
-              <div key={e.id} className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+              <div key={e.id} className="flex items-center gap-3 rounded-xl border border-line bg-ink-800/60 p-3">
                 <span className={cn('grid h-8 w-8 place-items-center rounded-lg', e.kind === 'SPOOF' ? 'bg-rose-400/10 text-rose-400' : 'bg-amber-400/10 text-amber-400')}>
                   {e.kind === 'SPOOF' ? <ShieldCheck className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
                 </span>
-                <div className="flex-1"><div className="text-sm font-semibold text-white">{e.kind === 'SPOOF' ? 'Liveness blocked' : 'Unknown person'}</div><div className="text-xs text-slate-500">{e.cameraId} · {timeAgo(e.createdAt)}</div></div>
+                <div className="flex-1"><div className="text-sm font-semibold text-slate-900">{e.kind === 'SPOOF' ? 'Liveness blocked' : 'Unknown person'}</div><div className="text-xs text-slate-500">{e.cameraId} · {timeAgo(e.createdAt)}</div></div>
                 <span className="tnum text-xs text-slate-500">{Math.round(e.confidence * 100)}%</span>
               </div>
             )) : <div className="py-10 text-center text-sm text-slate-500">No unknown or spoof events. Clean feed. ✓</div>}

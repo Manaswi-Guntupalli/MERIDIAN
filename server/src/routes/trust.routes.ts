@@ -36,9 +36,17 @@ router.post(
   }),
 );
 
-// Time Machine — reconstruct key metrics as they stood at a past timestamp.
+/**
+ * Point-in-time ACTIVITY REPLAY.
+ *
+ * Honest scope: this folds the append-only event log up to `at` and reports
+ * what had happened by then (excluding reverted events). It is NOT a full
+ * state replay of every table — we don't claim to rebuild the whole school,
+ * because materialised views aren't yet event-derived. Naming it accurately
+ * matters more than the marketing line.
+ */
 router.get(
-  '/time-machine',
+  '/activity-replay',
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
     const at = (req.query.at as string) || new Date().toISOString();

@@ -1,0 +1,334 @@
+// Lumen — committing a verified document into the school's live records.
+//
+// This is the step that closes the loop: paper → extraction → human review →
+// an actual Student/Teacher record, with no retyping in between. Because it
+// *creates real records*, it is also the most dangerous step, so the rules are
+// strict and enforced here rather than trusted to the UI:
+//
+//   1. Only VERIFIED documents commit. A document still carrying unreviewed
+//      fields cannot become a record, full stop.
+//   2. Commits are idempotent — a double-click must not create two students.
+//   3. The record, the document's status flip, the Trust event and the
+//      activity entry land in ONE transaction. An earlier version mutated
+//      first and recorded the event afterwards — a crash in the gap left a
+//      record the undo system had never heard of. Atomic or nothing.
+//   4. Blocking duplicates (same admission number / employee ID / email) stop
+//      the commit with a clear message. The clerk resolves them, not us.
+//   5. Nothing extracted is thrown away. Addresses, guardians, emergency
+//      contacts become first-class columns; a guardian with an email gets a
+//      parent portal account linked to the child. What can't become a column
+//      is still on the archived document, one click away.
+
+import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
+import type { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma.js';
+import { badRequest } from '../../lib/errors.js';
+import { recordEvent } from '../eventStore.js';
+import { templateFor } from './templates.js';
+
+type Tx = Prisma.TransactionClient;
+
+export interface CommitResult {
+  kind: 'STUDENT' | 'TEACHER';
+  id: string;
+  name: string;
+  summary: string;
+  /** Facts the clerk should know about how the record was assembled. */
+  notes: string[];
+  /** Fired after the transaction commits — announces the Trust event. */
+  emitEvent: () => void;
+}
+
+interface FieldRow {
+  key: string;
+  value: string;
+  status: string;
+}
+
+function get(fields: FieldRow[], key: string): string {
+  return fields.find((f) => f.key === key)?.value.trim() ?? '';
+}
+
+function parseDob(iso: string): Date | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
+  const d = new Date(iso + 'T00:00:00Z');
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** A random-entropy hash: the account exists but nobody can log into it until
+ *  an admin sets a real password. Never a guessable default. */
+async function unusablePassword(): Promise<string> {
+  return bcrypt.hash(crypto.randomBytes(24).toString('base64url'), 10);
+}
+
+async function commitStudent(
+  tx: Tx,
+  schoolId: string,
+  fields: FieldRow[],
+  notes: string[],
+): Promise<{ id: string; name: string; summary: string; createdParentId?: string }> {
+  const name = get(fields, 'studentName');
+  if (!name) throw badRequest('Cannot commit: the student name field is empty.');
+
+  let admissionNo = get(fields, 'admissionNo');
+  if (admissionNo) {
+    const clash = await tx.student.findFirst({ where: { schoolId, admissionNo }, select: { name: true } });
+    if (clash) {
+      throw badRequest(
+        `Admission number ${admissionNo} already belongs to ${clash.name}. Resolve the duplicate before committing.`,
+      );
+    }
+  } else {
+    // The form had no admission number — mint the next one rather than fail,
+    // but say so; the clerk may want to overwrite it with the official one.
+    const year = new Date().getFullYear();
+    const count = await tx.student.count({ where: { schoolId } });
+    admissionNo = `ADM-${year}-${String(count + 1).padStart(3, '0')}`;
+    notes.push(`No admission number on the form — assigned ${admissionNo}.`);
+  }
+
+  // Resolve "8" + "B" (or "8B") to a real class, if the school has it.
+  const grade = Number((get(fields, 'className').match(/\d{1,2}/) ?? [])[0]);
+  const section = (get(fields, 'section') || (get(fields, 'className').match(/[A-Za-z]$/) ?? [])[0] || '')
+    .toUpperCase();
+  let classId: string | undefined;
+  if (!Number.isNaN(grade) && grade >= 1) {
+    const cls = await tx.class.findFirst({
+      where: { schoolId, grade, ...(section ? { section } : {}) },
+      select: { id: true, name: true },
+    });
+    if (cls) {
+      classId = cls.id;
+      notes.push(`Assigned to class ${cls.name}.`);
+    } else {
+      notes.push(`No class ${grade}${section} exists yet — student left unassigned.`);
+    }
+  } else {
+    notes.push('Class could not be determined — student left unassigned.');
+  }
+
+  // Roll number: next free within the class (or school-wide when unassigned).
+  const last = await tx.student.findFirst({
+    where: { schoolId, ...(classId ? { classId } : {}) },
+    orderBy: { rollNo: 'desc' },
+    select: { rollNo: true },
+  });
+  const rollNo = (last?.rollNo ?? 0) + 1;
+
+  // The contact block — the fields an earlier version dropped on the floor.
+  // These are what the office actually dials in an emergency.
+  const guardianName = get(fields, 'guardianName') || get(fields, 'fatherName') || get(fields, 'motherName');
+  const student = await tx.student.create({
+    data: {
+      schoolId,
+      name,
+      admissionNo,
+      rollNo,
+      classId,
+      gender: get(fields, 'gender') || undefined,
+      dob: parseDob(get(fields, 'dob')),
+      bloodGroup: get(fields, 'bloodGroup') || undefined,
+      email: get(fields, 'email').toLowerCase() || undefined,
+      phone: get(fields, 'phone') || undefined,
+      address: get(fields, 'address') || undefined,
+      pincode: get(fields, 'pincode') || undefined,
+      guardianName: guardianName || undefined,
+      fatherName: get(fields, 'fatherName') || undefined,
+      motherName: get(fields, 'motherName') || undefined,
+      emergencyContact: get(fields, 'emergencyContact') || undefined,
+    },
+  });
+
+  // ── Parent portal account ──
+  // A guardian with an email on the form gets a real login linked to the
+  // child — that is what "no retyping" means for the family side. Rules:
+  //   · existing PARENT user in this school → link them (the sibling case);
+  //   · email owned by a non-parent account → do nothing, tell the clerk;
+  //   · fresh email → create the account (unusable password until an admin
+  //     sets one) and link it.
+  let createdParentId: string | undefined;
+  const guardianEmail = get(fields, 'email').toLowerCase();
+  if (guardianEmail && guardianName) {
+    const existing = await tx.user.findUnique({
+      where: { email: guardianEmail },
+      select: { id: true, role: true, schoolId: true, name: true, parent: { select: { id: true } } },
+    });
+    if (existing?.parent && existing.schoolId === schoolId) {
+      await tx.studentParent.create({ data: { studentId: student.id, parentId: existing.parent.id } });
+      notes.push(`Linked to existing parent account ${existing.name} (${guardianEmail}).`);
+    } else if (existing) {
+      notes.push(`${guardianEmail} already belongs to a non-parent account — no parent login created.`);
+    } else {
+      const relation = get(fields, 'fatherName') === guardianName ? 'Father'
+        : get(fields, 'motherName') === guardianName ? 'Mother' : 'Guardian';
+      const user = await tx.user.create({
+        data: {
+          schoolId,
+          email: guardianEmail,
+          password: await unusablePassword(),
+          name: guardianName,
+          role: 'PARENT',
+          phone: get(fields, 'phone') || undefined,
+        },
+      });
+      const parent = await tx.parent.create({ data: { schoolId, userId: user.id, relation } });
+      await tx.studentParent.create({ data: { studentId: student.id, parentId: parent.id } });
+      createdParentId = parent.id;
+      notes.push(`Parent portal account created for ${guardianName} (${guardianEmail}) — an admin sets the password before first sign-in.`);
+    }
+  } else if (guardianName) {
+    notes.push('Guardian stored on the record; no portal account created (the form carried no email).');
+  }
+
+  return { id: student.id, name, summary: `${name} · ${admissionNo} · roll ${rollNo}`, createdParentId };
+}
+
+async function commitTeacher(
+  tx: Tx,
+  schoolId: string,
+  fields: FieldRow[],
+  notes: string[],
+): Promise<{ id: string; name: string; summary: string }> {
+  const name = get(fields, 'teacherName');
+  if (!name) throw badRequest('Cannot commit: the name field is empty.');
+
+  const email = get(fields, 'email').toLowerCase();
+  if (!email) throw badRequest('Cannot commit: staff records need an email address.');
+  const emailClash = await tx.user.findUnique({ where: { email }, select: { name: true } });
+  if (emailClash) {
+    throw badRequest(`${email} is already registered to ${emailClash.name}. Resolve the duplicate before committing.`);
+  }
+
+  let employeeId = get(fields, 'employeeId');
+  if (employeeId) {
+    const clash = await tx.teacher.findFirst({
+      where: { schoolId, employeeId },
+      select: { user: { select: { name: true } } },
+    });
+    if (clash) {
+      throw badRequest(`Employee ID ${employeeId} already belongs to ${clash.user.name}.`);
+    }
+  } else {
+    const year = new Date().getFullYear();
+    const count = await tx.teacher.count({ where: { schoolId } });
+    employeeId = `EMP-${year}-${String(count + 1).padStart(3, '0')}`;
+    notes.push(`No employee ID on the form — assigned ${employeeId}.`);
+  }
+
+  const department = get(fields, 'department') || get(fields, 'subject') || 'General';
+
+  const user = await tx.user.create({
+    data: {
+      schoolId,
+      email,
+      password: await unusablePassword(),
+      name,
+      role: 'TEACHER',
+      phone: get(fields, 'phone') || undefined,
+    },
+  });
+  notes.push('Login created with an unusable password — an admin must set one before first sign-in.');
+
+  const teacher = await tx.teacher.create({
+    data: {
+      schoolId,
+      userId: user.id,
+      employeeId,
+      department,
+      qualification: get(fields, 'qualification') || undefined,
+    },
+  });
+
+  return { id: teacher.id, name, summary: `${name} · ${employeeId} · ${department}` };
+}
+
+export async function commitDocument(
+  documentId: string,
+  schoolId: string,
+  actor: { id: string; name: string },
+): Promise<CommitResult> {
+  const doc = await prisma.document.findFirst({
+    where: { id: documentId, schoolId },
+    include: { fields: true },
+  });
+  if (!doc) throw badRequest('Document not found.');
+
+  // Idempotency: a committed document is done. Report what it became rather
+  // than silently creating a sibling record.
+  if (doc.status === 'COMMITTED') {
+    throw badRequest(`This document was already committed${doc.committedRefId ? ' to a record' : ''}. Undo that commit first if it was a mistake.`);
+  }
+  if (doc.status !== 'VERIFIED') {
+    const pending = doc.fields.filter((f) => f.status === 'REVIEW' || f.status === 'MISSING').length;
+    throw badRequest(
+      `Only verified documents can be committed. ${pending} field${pending === 1 ? '' : 's'} still need${pending === 1 ? 's' : ''} review.`,
+    );
+  }
+
+  const template = templateFor(doc.type);
+  if (!template.commits) {
+    throw badRequest(`${template.label} documents are records in themselves — there is nothing to commit them into.`);
+  }
+
+  const rows: FieldRow[] = doc.fields.map((f) => ({ key: f.key, value: f.value, status: f.status }));
+  const notes: string[] = [];
+  const kind = template.commits;
+
+  // Everything that changes state lives inside this one transaction: the new
+  // record (and any parent account), the document flip, the Trust event, the
+  // activity entry. If any line fails, the school's data is exactly as it was.
+  const { result, event } = await prisma.$transaction(async (tx) => {
+    const created =
+      kind === 'STUDENT'
+        ? await commitStudent(tx, schoolId, rows, notes)
+        : await commitTeacher(tx, schoolId, rows, notes);
+
+    await tx.document.update({
+      where: { id: doc.id },
+      data: { status: 'COMMITTED', committedAt: new Date(), committedKind: kind, committedRefId: created.id },
+    });
+
+    const evt = await recordEvent(
+      {
+        schoolId,
+        type: 'DOCUMENT_COMMITTED',
+        aggregate: kind === 'STUDENT' ? 'Student' : 'Teacher',
+        aggregateId: created.id,
+        payload: {
+          documentId: doc.id,
+          kind,
+          refId: created.id,
+          name: created.name,
+          ...('createdParentId' in created && created.createdParentId
+            ? { createdParentId: created.createdParentId }
+            : {}),
+        },
+        actorId: actor.id,
+        actorName: actor.name,
+      },
+      tx,
+    );
+
+    await tx.documentActivity.create({
+      data: {
+        documentId: doc.id,
+        kind: 'COMMITTED',
+        actorId: actor.id,
+        actorName: actor.name,
+        detailString: JSON.stringify({ kind, refId: created.id, summary: created.summary }),
+      },
+    });
+
+    return { result: created, event: evt };
+  });
+
+  return {
+    kind,
+    id: result.id,
+    name: result.name,
+    summary: result.summary,
+    notes,
+    emitEvent: event.emit,
+  };
+}

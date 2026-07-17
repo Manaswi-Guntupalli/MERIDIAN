@@ -4,8 +4,9 @@ import { UserX, AlertTriangle } from 'lucide-react';
 import { api, apiError } from '@/lib/api';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
-import { Card, Badge, LoadingScreen, Meter } from '@/components/ui';
-import { initials } from '@/lib/utils';
+import { Badge, LoadingScreen, EmptyState } from '@/components/ui';
+import { Table, CellIdentity } from '@/components/ui/Table';
+import { initials, cn } from '@/lib/utils';
 import type { TeacherRow } from '@/types';
 
 export default function Staff() {
@@ -38,39 +39,61 @@ export default function Staff() {
         actions={overloaded > 0 && <Badge severity="WARNING"><AlertTriangle className="h-3.5 w-3.5" /> {overloaded} near cap</Badge>}
       />
 
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {data?.map((t, i) => (
-          <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-            <Card className="glass-hover h-full">
-              <div className="flex items-start gap-3">
-                <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-amber-400/80 to-rose-400/80 text-sm font-bold text-ink-950">{initials(t.name)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-white">{t.name}</div>
-                  <div className="text-xs text-slate-500">{t.department} · {t.employeeId}</div>
+      <Table
+        rows={data ?? []}
+        rowKey={(t) => t.id}
+        empty={<EmptyState title="No staff yet" />}
+        columns={[
+          { key: 'name', header: 'Teacher', cell: (t) => <CellIdentity initials={initials(t.name)} title={t.name} sub={t.employeeId} /> },
+          { key: 'dept', header: 'Department', cell: (t) => <span className="text-slate-600">{t.department}</span> },
+          {
+            key: 'subjects',
+            header: 'Teaches',
+            cell: (t) => (
+              <div className="flex flex-wrap gap-1">
+                {t.subjects.map((s) => <span key={s} className="rounded border border-line bg-ink-800 px-1.5 py-px text-[0.68rem] font-medium text-slate-500">{s}</span>)}
+                {t.classesLed.map((c) => <span key={c} className="rounded border border-brand-200 bg-brand-50 px-1.5 py-px text-[0.68rem] font-semibold text-brand-700">{c}</span>)}
+              </div>
+            ),
+          },
+          {
+            key: 'load',
+            header: 'Weekly load',
+            width: '190px',
+            cell: (t) => (
+              <div className="flex items-center gap-2.5">
+                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-ink-700">
+                  <div
+                    className={cn('h-full rounded-full', t.overloaded ? 'bg-rose-400' : t.load > 80 ? 'bg-amber-400' : 'bg-brand-500')}
+                    style={{ width: `${Math.min(100, t.load)}%` }}
+                  />
                 </div>
-                {t.overloaded && <Badge severity="WARNING">At cap</Badge>}
+                <span className={cn('tnum text-[0.75rem] font-semibold', t.overloaded ? 'text-rose-400' : 'text-slate-500')}>
+                  {t.weeklyHours}/{t.maxHours}h
+                </span>
               </div>
-
-              <div className="mt-4">
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Weekly load</span>
-                  <span className="font-semibold text-slate-300">{t.weeklyHours}/{t.maxHours}h</span>
-                </div>
-                <Meter value={t.load} tone={t.overloaded ? 'rose' : t.load > 80 ? 'amber' : 'brand'} />
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {t.subjects.map((s) => <span key={s} className="chip">{s}</span>)}
-                {t.classesLed.map((c) => <span key={c} className="chip !border-brand-400/30 !text-brand-400">{c}</span>)}
-              </div>
-
-              <button onClick={() => markAbsent.mutate(t.id)} className="btn-ghost mt-4 w-full !py-2 text-xs">
-                <UserX className="h-3.5 w-3.5" /> Mark absent today
+            ),
+          },
+          {
+            key: 'status',
+            header: 'Status',
+            align: 'right',
+            width: '100px',
+            cell: (t) => (t.overloaded ? <Badge severity="WARNING">at cap</Badge> : <Badge severity="SUCCESS">balanced</Badge>),
+          },
+          {
+            key: 'action',
+            header: '',
+            align: 'right',
+            width: '120px',
+            cell: (t) => (
+              <button onClick={() => markAbsent.mutate(t.id)} className="btn-ghost !px-2.5 !py-1 text-[0.72rem]">
+                <UserX className="h-3.5 w-3.5" /> Absent
               </button>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

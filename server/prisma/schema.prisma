@@ -105,6 +105,17 @@ model Student {
   dob         DateTime?
   bloodGroup  String?
   photoUrl    String?
+  // Contact block — first-class columns so an admission commit loses nothing.
+  // These are exactly what the front office looks up in an emergency, so they
+  // belong on the record, not buried in a document's extraction JSON.
+  email            String?
+  phone            String?
+  address          String?
+  pincode          String?
+  guardianName     String?
+  fatherName       String?
+  motherName       String?
+  emergencyContact String?
   classId     String?
   class       Class?   @relation(fields: [classId], references: [id])
   rfidTag     String?  @unique
@@ -167,7 +178,7 @@ model Subject {
   school     School  @relation(fields: [schoolId], references: [id])
   code       String
   name       String
-  color      String  @default("#6366f1")
+  color      String  @default("#0E7C6B")
   weeklyLoad Int     @default(5)
   requiresLab Boolean @default(false)
   cognitiveLoad Int   @default(3)            // 1..5, used by Kairos soft spread
@@ -232,16 +243,85 @@ model Document {
   id          String   @id @default(cuid())
   schoolId    String
   school      School   @relation(fields: [schoolId], references: [id])
-  type        String                            // ADMISSION | LEAVE | MEDICAL | FEE_RECEIPT
+  // Detected by the classifier — see services/lumen/templates.ts for the registry.
+  type        String
+  typeConfidence Float @default(0)
   fileName    String
-  fileUrl     String?
-  status      String   @default("PROCESSING")
+  mimeType    String   @default("application/pdf")
+  sizeBytes   Int      @default(0)
+  pageCount   Int      @default(1)
+  // QUEUED | PROCESSING | REVIEW | VERIFIED | COMMITTED | FAILED
+  status      String   @default("QUEUED")
   overallConfidence Float @default(0)
+  processingMs Int     @default(0)
+  // JSON: per-stage timings + decisions, so a human can audit *how* we read it.
+  pipelineString String?
+  rawText     String?
+  errorMessage String?
+  batchId     String?
+  correctionCount Int  @default(0)
+  committedAt DateTime?
+  committedKind String?                        // STUDENT | TEACHER
+  committedRefId String?
   uploadedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  fields ExtractedField[]
+  fields    ExtractedField[]
+  pages     DocumentPage[]
+  insights  DocumentInsight[]
+  activity  DocumentActivity[]
+
+  @@index([schoolId, status])
+  @@index([batchId])
+}
+
+// The document's own life story: who uploaded it, how it was processed, every
+// correction a human made, and where it ended up. This is what the Processing
+// History timeline renders — a per-document audit trail, append-only.
+model DocumentActivity {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  // UPLOADED | PROCESSED | FAILED | REPROCESSED | FIELD_CORRECTED |
+  // FIELD_CONFIRMED | VERIFIED | COMMITTED
+  kind       String
+  actorId    String?
+  actorName  String?
+  detailString String?                          // JSON: kind-specific facts
+  createdAt  DateTime @default(now())
+
+  @@index([documentId, createdAt])
+}
+
+// One row per physical page: how we read it, and the words we found (provenance).
+model DocumentPage {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  index      Int
+  width      Int
+  height     Int
+  source     String                            // TEXT_LAYER | OCR
+  rotation   Int      @default(0)              // 0 | 90 | 180 | 270 applied
+  skewDeg    Float    @default(0)              // deskew angle applied
+  ocrConfidence Float @default(0)
+  quality    String?                           // JSON: blur/contrast/resolution metrics
+  wordsString String?                          // JSON word boxes — the audit trail
+
+  @@unique([documentId, index])
+}
+
+// Post-processing findings: duplicates, contradictions, missing mandatory fields.
+model DocumentInsight {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  kind       String                            // DUPLICATE | INCONSISTENCY | MISSING | CORRECTION | QUALITY
+  severity   String   @default("WARNING")      // INFO | WARNING | CRITICAL
+  message    String
+  detailString String?
+  createdAt  DateTime @default(now())
 }
 
 model ExtractedField {
@@ -250,14 +330,24 @@ model ExtractedField {
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   key        String                            // ERP field name
   label      String
-  value      String
-  confidence Float
-  // pixel-level provenance — the crop the value was read from
+  value      String                            // final value (normalised + corrected)
+  rawValue   String?                           // exactly what the engine read, before repair
+  confidence Float                             // composite score — see lumen/confidence.ts
+  ocrConfidence Float @default(0)              // engine-reported character confidence
+  page       Int      @default(0)
+  // pixel-level provenance — the crop the value was read from (normalised 0..1)
   cropX      Float
   cropY      Float
   cropW      Float
   cropH      Float
-  status     String   @default("AUTO")          // AUTO | REVIEW | CONFIRMED
+  status     String   @default("AUTO")          // AUTO | REVIEW | CONFIRMED | MISSING
+  source     String   @default("OCR")           // TEXT_LAYER | OCR | REGEX | AI | DERIVED
+  valid      Boolean  @default(true)
+  validationMessage String?
+  corrected  Boolean  @default(false)           // normaliser or AI repaired the raw read
+  required   Boolean  @default(false)
+
+  @@index([documentId, status])
 }
 
 // ──────────────────────────  KAIROS (TIMETABLE)  ────────────────────
@@ -422,8 +512,25 @@ model Notification {
   severity  String   @default("INFO")
   category  String   @default("GENERAL")
   actionString String?                              // suggested fix / deep link
-  read      Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  reads NotificationRead[]
+}
+
+// Read-state is a fact about the READER, not the message. A school-wide
+// announcement is one Notification row shared by hundreds of people; a
+// boolean on that row meant the first person to open it marked it read for
+// everyone else (observed: principal's "mark all read" blanked every
+// teacher's, parent's and student's inbox). Receipts make it per-user.
+model NotificationRead {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  readAt         DateTime     @default(now())
+
+  @@unique([notificationId, userId])
+  @@index([userId])
 }
 
 // ──────────────────────────  EMERGENCY MODE  ────────────────────────

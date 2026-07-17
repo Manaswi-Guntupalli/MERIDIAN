@@ -8,9 +8,14 @@ export interface Toast {
   severity: Severity;
 }
 
+const RAIL_KEY = 'meridian_sidebar_collapsed';
+
 interface UIState {
   paletteOpen: boolean;
   setPalette: (v: boolean) => void;
+  /** Sidebar collapsed to an icon rail — persisted across sessions. */
+  railed: boolean;
+  toggleRail: () => void;
   toasts: Toast[];
   pushToast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
@@ -19,6 +24,13 @@ interface UIState {
 export const useUI = create<UIState>((set) => ({
   paletteOpen: false,
   setPalette: (v) => set({ paletteOpen: v }),
+  railed: localStorage.getItem(RAIL_KEY) === '1',
+  toggleRail: () =>
+    set((s) => {
+      const railed = !s.railed;
+      localStorage.setItem(RAIL_KEY, railed ? '1' : '0');
+      return { railed };
+    }),
   toasts: [],
   pushToast: (t) => {
     const id = Math.random().toString(36).slice(2);

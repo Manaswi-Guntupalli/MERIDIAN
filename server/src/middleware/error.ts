@@ -19,7 +19,11 @@ export function errorHandler(
     res.status(err.status).json({ error: err.message, details: err.details });
     return;
   }
-  const message = err instanceof Error ? err.message : 'Internal server error';
-  if (process.env.NODE_ENV !== 'production') console.error('[error]', err);
-  res.status(500).json({ error: message });
+  // Never leak internal error details (stack traces, SQL, file paths) to
+  // clients in production — log server-side, return a generic message.
+  const isProd = process.env.NODE_ENV === 'production';
+  console.error('[error]', err);
+  res.status(500).json({
+    error: isProd ? 'Internal server error' : err instanceof Error ? err.message : 'Internal server error',
+  });
 }

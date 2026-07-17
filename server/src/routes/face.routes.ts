@@ -56,7 +56,9 @@ router.post(
       type: 'FACE_ENROLLED',
       aggregate: body.subjectType,
       aggregateId: body.subjectId,
-      payload: { name, embeddings: result.total },
+      // subjectType/Id in the payload so the reverser can truly erase the
+      // biometric templates on undo (also the parent opt-out path).
+      payload: { name, embeddings: result.total, subjectType: body.subjectType, subjectId: body.subjectId },
       actorId: req.user!.sub,
       actorName: req.user!.name,
     });
@@ -174,18 +176,30 @@ router.get(
   }),
 );
 
-// ── Gallery of enrolled vectors for on-device (edge) matching at the kiosk.
-//    Vectors only — never images. Enables true multi-face recognition at frame
-//    rate without a server round-trip per face. ──
-router.get(
-  '/gallery',
+/**
+ * Batch recognition for the live kiosk.
+ *
+ * SECURITY: we deliberately do NOT ship the enrolled face gallery to the
+ * browser. Children's biometric templates never leave the server; the kiosk
+ * sends the descriptors it computed from its own camera frame and receives
+ * only names + confidences back. Matching stays server-side and auditable.
+ */
+const batchSchema = z.object({ vectors: z.array(z.array(z.number()).length(128)).max(12) });
+router.post(
+  '/recognize-batch',
+  validateBody(batchSchema),
   asyncHandler(async (req, res) => {
-    const rows = await prisma.faceEmbedding.findMany({
-      where: { schoolId: req.user!.schoolId },
-      select: { subjectType: true, subjectId: true, name: true, vectorString: true },
-    });
+    const schoolId = req.user!.schoolId;
+    const { vectors } = req.body as z.infer<typeof batchSchema>;
+    const results = await Promise.all(vectors.map((v) => matchFace(schoolId, v)));
     res.json({
-      gallery: rows.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, name: r.name, vector: JSON.parse(r.vectorString) })),
+      results: results.map((m) => ({
+        matched: m.matched,
+        name: m.matched ? m.name : null,
+        subjectId: m.matched ? m.subjectId : null,
+        subjectType: m.matched ? m.subjectType : null,
+        confidence: m.confidence,
+      })),
     });
   }),
 );

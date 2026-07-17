@@ -18,9 +18,20 @@ export interface DashboardStats {
   students: number;
   teachers: number;
   classes: number;
-  attendanceRate: number;
+  attendanceRate: number; // representative-day rate (powers Health)
+  attendanceDate: string;
   present: number;
   totalMarked: number;
+  /** Live, real-time progress for today — may be partial mid-roll-call. */
+  today: {
+    date: string;
+    marked: number;
+    present: number;
+    absent: number;
+    rate: number;
+    coverage: number;
+    inProgress: boolean;
+  };
   outstanding: number;
   overdueCount: number;
   docsInReview: number;
@@ -157,12 +168,19 @@ export interface Prediction {
 export interface DocSummary {
   id: string;
   type: string;
+  typeLabel: string;
   fileName: string;
-  status: string;
+  status: 'QUEUED' | 'PROCESSING' | 'REVIEW' | 'VERIFIED' | 'COMMITTED' | 'FAILED';
   overallConfidence: number;
+  typeConfidence: number;
+  pageCount: number;
+  processingMs: number;
   createdAt: string;
+  committedKind: string | null;
   fieldCount: number;
   needsReview: number;
+  criticalInsights: number;
+  errorMessage: string | null;
 }
 
 export interface ExtractedField {
@@ -170,12 +188,86 @@ export interface ExtractedField {
   key: string;
   label: string;
   value: string;
+  rawValue: string | null;
   confidence: number;
+  ocrConfidence: number;
+  page: number;
   cropX: number;
   cropY: number;
   cropW: number;
   cropH: number;
-  status: 'AUTO' | 'REVIEW' | 'CONFIRMED';
+  status: 'AUTO' | 'REVIEW' | 'CONFIRMED' | 'MISSING';
+  source: 'TEXT_LAYER' | 'OCR' | 'REGEX' | 'AI' | 'DERIVED';
+  valid: boolean;
+  validationMessage: string | null;
+  corrected: boolean;
+  required: boolean;
+}
+
+export interface DocPage {
+  id: string;
+  index: number;
+  width: number;
+  height: number;
+  source: 'TEXT_LAYER' | 'OCR';
+  rotation: number;
+  skewDeg: number;
+  ocrConfidence: number;
+  quality: {
+    sharpness: number;
+    contrast: number;
+    dpi: number;
+    verdict: 'GOOD' | 'FAIR' | 'POOR';
+    notes: string[];
+  } | null;
+}
+
+export interface DocInsight {
+  id: string;
+  kind: 'DUPLICATE' | 'INCONSISTENCY' | 'MISSING' | 'CORRECTION' | 'QUALITY';
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  message: string;
+  detail: unknown;
+}
+
+export interface DocDetail extends Omit<DocSummary, 'fieldCount' | 'needsReview' | 'criticalInsights'> {
+  commits: 'STUDENT' | 'TEACHER' | null;
+  correctionCount: number;
+  fields: ExtractedField[];
+  pages: DocPage[];
+  insights: DocInsight[];
+  pipeline: { timings: { stage: string; ms: number; note?: string }[] } | null;
+}
+
+export interface DocActivity {
+  id: string;
+  kind:
+    | 'UPLOADED'
+    | 'PROCESSED'
+    | 'FAILED'
+    | 'REPROCESSED'
+    | 'FIELD_CORRECTED'
+    | 'FIELD_CONFIRMED'
+    | 'VERIFIED'
+    | 'COMMITTED'
+    | 'COMMIT_UNDONE';
+  actorName: string | null;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface LumenStats {
+  total: number;
+  queued: number;
+  needsReview: number;
+  verified: number;
+  committed: number;
+  failed: number;
+  successRate: number;
+  avgConfidence: number;
+  avgMs: number;
+  corrections: number;
+  timeSavedMinutes: number;
 }
 
 export interface EventItem {

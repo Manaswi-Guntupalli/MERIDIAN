@@ -26,7 +26,7 @@ export default function Foresight() {
         subtitle="Gradient-boosted forecasts of tomorrow's staffing strain — with the top drivers behind every prediction (SHAP-style)."
       />
 
-      <div className="mb-6 rounded-2xl border border-brand-400/20 bg-brand-500/[0.06] p-4 text-sm text-slate-300">
+      <div className="mb-6 rounded-2xl border border-brand-400/20 bg-brand-500/[0.06] p-4 text-sm text-slate-600">
         <span className="font-semibold text-brand-400">Loop:</span> Foresight predicts → Kairos pre-solves cover → Command Center shows one proactive alert. The engines act as one nervous system.
       </div>
 
@@ -44,14 +44,14 @@ export default function Foresight() {
                       <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-500">{meta.label}</span>
                       <Badge className="ml-auto">for {p.targetDate.slice(5)}</Badge>
                     </div>
-                    <div className="mt-1.5 text-sm font-semibold text-white">{p.label}</div>
+                    <div className="mt-1.5 text-sm font-semibold text-slate-900">{p.label}</div>
 
                     <div className="mt-3 space-y-1.5">
-                      <div className="text-[0.65rem] uppercase tracking-wider text-slate-600">Top drivers</div>
+                      <div className="text-[0.65rem] uppercase tracking-wider text-slate-400">Top drivers</div>
                       {p.drivers.map((d, j) => (
                         <div key={j} className="flex items-center gap-2">
-                          <span className="w-28 shrink-0 truncate text-xs text-slate-400">{d.factor}</span>
-                          <div className="relative h-1.5 flex-1 rounded-full bg-white/5">
+                          <span className="w-28 shrink-0 truncate text-xs text-slate-500">{d.factor}</span>
+                          <div className="relative h-1.5 flex-1 rounded-full bg-ink-800">
                             <motion.div
                               initial={{ width: 0 }}
                               animate={{ width: `${Math.abs(d.impact) * 100}%` }}

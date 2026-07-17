@@ -38,14 +38,14 @@ export default function Reports() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <div className="mb-3 flex items-center gap-2"><FileBarChart className="h-4 w-4 text-brand-400" /><h2 className="font-bold text-white">{data.title}</h2><Badge className="ml-auto">{new Date(data.generatedAt).toLocaleString()}</Badge></div>
-          <p className="text-sm leading-relaxed text-slate-300">{data.narrative}</p>
+          <div className="mb-3 flex items-center gap-2"><FileBarChart className="h-4 w-4 text-brand-400" /><h2 className="font-bold text-slate-900">{data.title}</h2><Badge className="ml-auto">{new Date(data.generatedAt).toLocaleString()}</Badge></div>
+          <p className="text-sm leading-relaxed text-slate-600">{data.narrative}</p>
 
           <div className="mt-6">
             <div className="label mb-2">Recommendations</div>
             <div className="space-y-2">
               {data.recommendations.map((r: string, i: number) => (
-                <motion.div key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }} className="flex items-start gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-sm text-slate-300">
+                <motion.div key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }} className="flex items-start gap-2 rounded-xl border border-line bg-ink-800/60 p-3 text-sm text-slate-600">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-mint-400" /> {r}
                 </motion.div>
               ))}
@@ -54,11 +54,11 @@ export default function Reports() {
         </Card>
 
         <Card>
-          <div className="mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-400" /><h2 className="font-bold text-white">Forecast highlights</h2></div>
+          <div className="mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-400" /><h2 className="font-bold text-slate-900">Forecast highlights</h2></div>
           <div className="space-y-3">
             {data.predictions.map((p: any, i: number) => (
-              <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <div className="text-sm text-slate-200">{p.label}</div>
+              <div key={i} className="rounded-xl border border-line bg-ink-800/60 p-3">
+                <div className="text-sm text-slate-700">{p.label}</div>
                 <div className="mt-1 text-[0.65rem] font-semibold text-slate-500">{Math.round(p.confidence * 100)}% confidence</div>
               </div>
             ))}

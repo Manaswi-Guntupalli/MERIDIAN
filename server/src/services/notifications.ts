@@ -28,7 +28,12 @@ export async function notify(input: NotificationInput) {
   return n;
 }
 
-export function serializeNotification(n: any) {
+/**
+ * `read` is per-viewer (computed from NotificationRead receipts), so the
+ * caller supplies it. The default covers freshly-created notifications going
+ * out over the socket — new mail is unread for everybody by definition.
+ */
+export function serializeNotification(n: any, read = false) {
   return {
     id: n.id,
     title: n.title,
@@ -36,7 +41,7 @@ export function serializeNotification(n: any) {
     severity: n.severity,
     category: n.category,
     action: fromJson(n.actionString, null),
-    read: n.read,
+    read,
     createdAt: n.createdAt,
   };
 }

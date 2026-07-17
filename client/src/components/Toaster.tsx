@@ -24,16 +24,16 @@ export default function Toaster() {
               initial={{ opacity: 0, x: 40, scale: 0.95 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 40, scale: 0.95 }}
-              className="glass pointer-events-auto flex items-start gap-3 p-3.5"
+              className="surface pointer-events-auto flex items-start gap-3 p-3.5"
             >
               <span className={`rounded-lg border p-1.5 ${severityColor[t.severity]}`}>
                 <Icon className="h-4 w-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-white">{t.title}</div>
-                {t.body && <div className="mt-0.5 text-xs text-slate-400">{t.body}</div>}
+                <div className="text-sm font-semibold text-slate-900">{t.title}</div>
+                {t.body && <div className="mt-0.5 text-xs text-slate-500">{t.body}</div>}
               </div>
-              <button onClick={() => dismissToast(t.id)} className="text-slate-500 hover:text-white">
+              <button onClick={() => dismissToast(t.id)} className="text-slate-500 hover:text-slate-900">
                 <X className="h-4 w-4" />
               </button>
             </motion.div>

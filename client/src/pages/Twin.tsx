@@ -21,7 +21,7 @@ export default function Twin() {
   if (isLoading) return <LoadingScreen label="Rendering digital twin…" />;
 
   const roomTone = (r: TwinRoom) => {
-    if (!r.occupied) return 'border-white/10 bg-white/[0.02]';
+    if (!r.occupied) return 'border-line bg-ink-800/60';
     if (!r.teacherPresent) return 'border-rose-400/40 bg-rose-500/10';
     if (r.attendancePct !== null && r.attendancePct < 85) return 'border-amber-400/40 bg-amber-400/10';
     return 'border-mint-400/40 bg-mint-400/10';
@@ -39,13 +39,21 @@ export default function Twin() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card className="relative overflow-hidden">
-            <div className="pointer-events-none absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.4) 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
-            <div className="grid gap-5 sm:grid-cols-2">
+            {/* Site plan: a faint warm blueprint grid, not a neon overlay */}
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage:
+                  'linear-gradient(rgba(14,124,107,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(14,124,107,0.05) 1px, transparent 1px)',
+                backgroundSize: '26px 26px',
+              }}
+            />
+            <div className="relative grid gap-5 sm:grid-cols-2">
               {data?.buildings.map((b, bi) => (
-                <motion.div key={b.id} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: bi * 0.08 }} className="rounded-2xl border border-white/[0.08] bg-ink-850/40 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{b.name}</span>
-                    <span className="text-[0.6rem] text-slate-600">{b.rooms.length} rooms</span>
+                <motion.div key={b.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: bi * 0.06 }} className="rounded-[12px] border border-line bg-canvas/70 p-3">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <span className="font-display text-[0.82rem] font-semibold text-slate-800">{b.name}</span>
+                    <span className="text-[0.62rem] text-slate-400">{b.rooms.length} rooms</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {b.rooms.map((r) => {
@@ -58,12 +66,12 @@ export default function Twin() {
                           className={cn('rounded-xl border p-2.5 text-left transition', roomTone(r), sel?.id === r.id && '!ring-2 !ring-brand-400/50')}
                         >
                           <div className="flex items-center justify-between">
-                            <Icon className="h-3.5 w-3.5 text-slate-400" />
+                            <Icon className="h-3.5 w-3.5 text-slate-500" />
                             {r.occupied && <span className={cn('h-1.5 w-1.5 rounded-full', r.teacherPresent ? 'bg-mint-400 animate-pulseGlow' : 'bg-rose-400')} />}
                           </div>
-                          <div className="mt-1 text-xs font-bold text-white">{r.name}</div>
+                          <div className="mt-1 text-xs font-bold text-slate-900">{r.name}</div>
                           <div className="truncate text-[0.6rem] text-slate-500">{r.className ?? 'Vacant'}</div>
-                          {r.attendancePct !== null && <div className="mt-0.5 text-[0.6rem] font-semibold text-slate-400">{r.attendancePct}% present</div>}
+                          {r.attendancePct !== null && <div className="mt-0.5 text-[0.6rem] font-semibold text-slate-500">{r.attendancePct}% present</div>}
                         </motion.button>
                       );
                     })}
@@ -76,18 +84,18 @@ export default function Twin() {
               <Legend color="bg-mint-400" label="Class in session" />
               <Legend color="bg-rose-400" label="Teacher absent" />
               <Legend color="bg-amber-400" label="Low attendance" />
-              <Legend color="bg-white/20" label="Vacant" />
+              <Legend color="bg-ink-700" label="Vacant" />
             </div>
           </Card>
         </div>
 
         <div>
-          <h2 className="mb-3 font-bold text-white">Room detail</h2>
+          <h2 className="mb-3 font-bold text-slate-900">Room detail</h2>
           {sel ? (
             <motion.div key={sel.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
               <Card>
                 <div className="flex items-center justify-between">
-                  <div className="text-lg font-bold text-white">{sel.name}</div>
+                  <div className="text-lg font-bold text-slate-900">{sel.name}</div>
                   <Badge>{sel.type}</Badge>
                 </div>
                 <div className="mt-4 space-y-3 text-sm">
@@ -116,7 +124,7 @@ function Row({ icon, label, value, ok }: { icon: React.ReactNode; label: string;
     <div className="flex items-center gap-3">
       <span className="text-slate-500">{icon}</span>
       <span className="text-slate-500">{label}</span>
-      <span className={cn('ml-auto font-medium', ok === false ? 'text-rose-400' : ok ? 'text-mint-400' : 'text-slate-200')}>{value}</span>
+      <span className={cn('ml-auto font-medium', ok === false ? 'text-rose-400' : ok ? 'text-mint-400' : 'text-slate-700')}>{value}</span>
     </div>
   );
 }

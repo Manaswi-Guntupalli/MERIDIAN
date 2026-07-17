@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { initSocket } from './lib/socket.js';
 import { prisma } from './lib/prisma.js';
+import { runRetentionSweep } from './services/lumen/storage.js';
 
 async function main() {
   const app = createApp();
@@ -15,6 +16,11 @@ async function main() {
     console.log(`  ⬦ AI (OpenAI)   →  ${env.aiEnabled ? 'enabled' : 'simulation fallback (no key)'}`);
     console.log(`  ⬦ Client origin →  ${env.clientOrigin}\n`);
   });
+
+  // Document retention: sweep on boot, then daily. unref() so a pending timer
+  // never holds the process open during shutdown.
+  void runRetentionSweep().catch(() => {});
+  setInterval(() => void runRetentionSweep().catch(() => {}), 24 * 3600 * 1000).unref();
 
   const shutdown = async () => {
     await prisma.$disconnect();

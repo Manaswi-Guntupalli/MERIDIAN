@@ -2,11 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { comparePassword, hashPassword, signToken } from '../lib/auth.js';
-import { asyncHandler, badRequest, unauthorized } from '../lib/errors.js';
+import { asyncHandler, badRequest, forbidden, unauthorized } from '../lib/errors.js';
 import { validateBody } from '../utils/validate.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 import { auditLog } from '../services/trustLedger.js';
-import { ALL_ROLES } from '../utils/constants.js';
+import { ALL_ROLES, ROLES, STAFF_ADMIN } from '../utils/constants.js';
 
 const router = Router();
 
@@ -17,10 +17,9 @@ const loginSchema = z.object({
 
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(8),
   name: z.string().min(2),
   role: z.enum(ALL_ROLES as [string, ...string[]]),
-  schoolCode: z.string().min(1),
 });
 
 router.post(
@@ -41,19 +40,31 @@ router.post(
   }),
 );
 
+/**
+ * Provisioning a user is an ADMINISTRATIVE action, never public self-signup.
+ * Previously anyone who knew a school code could mint themselves SUPER_ADMIN.
+ * Now: caller must be an authenticated admin, the new user is always created
+ * inside the CALLER's school (never a client-supplied one), and only a
+ * SUPER_ADMIN may create another SUPER_ADMIN (no privilege escalation).
+ */
 router.post(
   '/register',
+  authenticate,
+  authorize(...STAFF_ADMIN),
   validateBody(registerSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof registerSchema>;
-    const school = await prisma.school.findUnique({ where: { code: body.schoolCode } });
-    if (!school) throw badRequest('Unknown school code');
+    const actor = req.user!;
+
+    if (body.role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
+      throw forbidden('Only a Super Admin can create another Super Admin');
+    }
     const exists = await prisma.user.findUnique({ where: { email: body.email } });
     if (exists) throw badRequest('Email already registered');
 
     const user = await prisma.user.create({
       data: {
-        schoolId: school.id,
+        schoolId: actor.schoolId, // scoped to the caller's school — not client input
         email: body.email,
         password: await hashPassword(body.password),
         name: body.name,
@@ -61,8 +72,15 @@ router.post(
       },
       include: { school: true },
     });
-    const token = signToken({ sub: user.id, schoolId: user.schoolId, role: user.role, name: user.name });
-    res.status(201).json({ token, user: publicUser(user) });
+    await auditLog({
+      schoolId: actor.schoolId,
+      actorId: actor.sub,
+      action: 'CREATE_USER',
+      entity: 'User',
+      entityId: user.id,
+      meta: { role: user.role, email: user.email },
+    });
+    res.status(201).json({ user: publicUser(user) });
   }),
 );
 
