@@ -16,7 +16,7 @@ A complete, production-shaped full-stack application for the **Future-Ready Ops*
 | School ERP Automation | **Pulse** | Students, Staff, Classes, Attendance, Fees — event-sourced, realtime |
 | The Admin Dashboard | **Pulse · Command Center** | `/` — proactive anomaly-ranked alerts, ⌘K palette, Copilot |
 | Predictive Resource Allocation | **Foresight** | `/foresight` — absence & substitute-demand forecasts with SHAP-style drivers |
-| Automated Attendance (RFID / CV) | **Presence** | `/presence` — RFID + on-device face-embedding kiosk, **zero raw images stored** |
+| Automated Attendance (RFID / CV) | **Presence** | `/presence` — event-driven attendance platform: RFID, QR, manual and face recognition all flow through one pipeline; reader fleet + card lifecycle management, live feed, analytics, and a hardware-identical simulator, **zero raw images stored** |
 
 ### The 10 "wow" features
 1. **School Digital Twin** — live animated campus map (`/twin`), occupancy · teacher presence · attendance · power
@@ -92,7 +92,7 @@ Trust Core (Express + Prisma) — append-only event store = single source of tru
 - **Cross-cutting:** RBAC (6 roles) · event sourcing · Trust Ledger · offline-tolerant · realtime
 
 ### Data model
-`School · User · Teacher · Student · Parent · Class · Subject · Building · Room · Attendance · Document · ExtractedField · Timetable · TimetableSlot · StaffAbsence · Substitution · Fee · Payment · Prediction · Event · AILog · AuditLog · Notification · EmergencyIncident · Setting`
+`School · User · Teacher · Student · Parent · Class · Subject · Building · Room · Attendance · RFIDCard · RFIDReader · ReaderHeartbeat · AttendanceEvent · Document · ExtractedField · Timetable · TimetableSlot · StaffAbsence · Substitution · Fee · Payment · Prediction · Event · AILog · AuditLog · Notification · EmergencyIncident · Setting`
 
 ---
 

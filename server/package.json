@@ -14,6 +14,7 @@
     "db:reset": "prisma db push --force-reset && prisma generate",
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lumen:fixtures": "tsx scripts/generate-fixtures.ts",
     "lumen:bench": "tsx scripts/benchmark-lumen.ts"
   },
@@ -53,9 +54,12 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.2",
     "@types/pdfkit": "^0.17.6",
+    "@types/supertest": "^7.2.1",
     "pdfkit": "^0.19.1",
     "prisma": "^5.22.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

@@ -6,9 +6,9 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { validateBody } from '../utils/validate.js';
 import { recordEvent } from '../services/eventStore.js';
 import { logAI } from '../services/trustLedger.js';
-import { notify } from '../services/notifications.js';
 import { emitToSchool } from '../lib/socket.js';
 import { matchFace, enrollFace, clearFace } from '../services/face.js';
+import { processScan } from '../services/presence/engine.js';
 import { STAFF, STAFF_ADMIN } from '../utils/constants.js';
 
 const router = Router();
@@ -113,50 +113,21 @@ router.post(
     const student = await prisma.student.findFirst({ where: { id: match.subjectId, schoolId } });
     if (!student || !student.classId) throw badRequest('Recognised student has no class assigned');
 
-    const date = todayStr();
-    const existing = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: student.id, date } } });
-    if (existing && existing.status !== 'ABSENT') {
-      return res.json({ status: 'ALREADY', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: existing.timestamp });
+    // Face recognition is just another source into the one Presence
+    // pipeline — engine.processScan() handles duplicate/late/direction
+    // policy, the Attendance upsert, the Trust Ledger entry and parent
+    // notification exactly as it would for an RFID tap.
+    const result = await processScan({ schoolId, source: 'CV', studentId: student.id, confidence: match.confidence });
+
+    if (result.status === 'DUPLICATE') {
+      return res.json({ status: 'ALREADY', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: result.timestamp });
     }
-
-    const record = await prisma.attendance.upsert({
-      where: { studentId_date: { studentId: student.id, date } },
-      create: { schoolId, studentId: student.id, classId: student.classId, date, status: 'PRESENT', source: 'CV', confidence: match.confidence },
-      update: { status: 'PRESENT', source: 'CV', confidence: match.confidence },
-    });
-
-    await recordEvent({
-      schoolId,
-      type: 'ATTENDANCE_MARKED',
-      aggregate: 'Attendance',
-      aggregateId: record.id,
-      payload: { attendanceId: record.id, studentId: student.id, status: 'PRESENT', source: 'CV' },
-      actorName: `Face kiosk (${body.cameraId})`,
-    });
-    await logAI({
-      schoolId,
-      engine: 'PRESENCE',
-      action: 'Face-embedding attendance match',
-      reason: `Matched enrolled student at ${Math.round(match.confidence * 100)}% (liveness verified); raw frame discarded in-memory`,
-      confidence: match.confidence,
-      output: { student: student.name },
-    });
-
-    // Parent notification.
-    const links = await prisma.studentParent.findMany({ where: { studentId: student.id }, include: { parent: true } });
-    for (const l of links) {
-      await notify({
-        schoolId,
-        userId: l.parent.userId,
-        title: `${student.name} entered school`,
-        body: `Marked present at ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} via face recognition.`,
-        severity: 'SUCCESS',
-        category: 'ATTENDANCE',
-      });
+    if (result.status === 'REJECTED') {
+      throw badRequest(result.reason ?? 'Attendance could not be recorded');
     }
 
     emitToSchool(schoolId, 'face:attendance', { name: student.name, rollNo: student.rollNo, confidence: match.confidence });
-    res.json({ status: 'MARKED', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: record.timestamp });
+    res.json({ status: 'MARKED', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: result.timestamp, late: result.late });
   }),
 );
 

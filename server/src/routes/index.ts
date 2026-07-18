@@ -17,6 +17,7 @@ import copilot from './copilot.routes.js';
 import trust from './trust.routes.js';
 import reports from './reports.routes.js';
 import face from './face.routes.js';
+import presence from './presence/index.js';
 
 const api = Router();
 
@@ -38,5 +39,6 @@ api.use('/copilot', copilot);
 api.use('/trust', trust);
 api.use('/reports', reports);
 api.use('/face', face);
+api.use('/presence', presence);
 
 export default api;

@@ -1,7 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { verifyToken, type JwtPayload } from '../lib/auth.js';
+import { comparePassword } from '../lib/auth.js';
 import { AppError, forbidden, unauthorized } from '../lib/errors.js';
+import { STAFF } from '../utils/constants.js';
 
 // Augment Express Request with the authenticated user.
 declare global {
@@ -9,6 +11,9 @@ declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
+      /** Present when the request was authenticated as a device (reader
+       *  API key) instead of a logged-in user — see authenticateReader. */
+      reader?: { id: string; schoolId: string; name: string };
     }
   }
 }
@@ -80,4 +85,42 @@ export function authorize(...roles: string[]) {
     }
     next();
   };
+}
+
+/**
+ * Device authentication for RFID readers — the seam real hardware uses
+ * instead of a user JWT. The reader id comes from the route param
+ * (`:id/heartbeat`) or the request body (`/presence/scan`); the secret is
+ * the `x-reader-key` header, checked against the bcrypt hash stored on the
+ * reader row. Never trust a client-supplied schoolId — it comes from the
+ * authenticated reader's own record.
+ */
+export function authenticateReader(req: Request, _res: Response, next: NextFunction): void {
+  const key = req.headers['x-reader-key'];
+  const readerId = req.params.id || (req.body as { readerId?: string } | undefined)?.readerId;
+  if (!key || typeof key !== 'string' || !readerId) return next(unauthorized('Missing reader credentials'));
+
+  void prisma.rFIDReader
+    .findUnique({ where: { id: readerId } })
+    .then(async (reader) => {
+      if (!reader) return next(unauthorized('Unknown reader'));
+      const ok = await comparePassword(key, reader.apiKeyHash);
+      if (!ok) return next(unauthorized('Invalid reader key'));
+      req.reader = { id: reader.id, schoolId: reader.schoolId, name: reader.name };
+      next();
+    })
+    .catch(next);
+}
+
+/**
+ * Accepts EITHER a reader API key (device/simulator scanning) OR a staff
+ * JWT (manual correction). Exactly one of req.reader / req.user is set for
+ * the rest of the chain to branch on.
+ */
+export function authenticateReaderOrStaff(req: Request, res: Response, next: NextFunction): void {
+  if (req.headers['x-reader-key']) return authenticateReader(req, res, next);
+  return authenticate(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    return authorize(...STAFF)(req, res, next);
+  });
 }

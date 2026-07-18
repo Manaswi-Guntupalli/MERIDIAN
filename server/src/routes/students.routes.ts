@@ -41,6 +41,7 @@ router.get(
         fees: true,
         parents: { include: { parent: { include: { user: true } } } },
         attendance: { orderBy: { date: 'desc' }, take: 30 },
+        rfidCards: { where: { status: 'ACTIVE' }, take: 1 },
       },
     });
     if (!student) throw notFound('Student not found');
@@ -55,7 +56,6 @@ const createSchema = z.object({
   classId: z.string().optional(),
   gender: z.string().optional(),
   bloodGroup: z.string().optional(),
-  rfidTag: z.string().optional(),
 });
 
 router.post(
@@ -80,7 +80,7 @@ router.post(
   }),
 );
 
-const updateSchema = createSchema.partial();
+const updateSchema = createSchema.partial().extend({ active: z.boolean().optional() });
 
 router.patch(
   '/:id',

@@ -16,7 +16,15 @@ const Fees = lazy(() => import('@/pages/Fees'));
 const Lumen = lazy(() => import('@/pages/Lumen'));
 const Kairos = lazy(() => import('@/pages/Kairos'));
 const Foresight = lazy(() => import('@/pages/Foresight'));
-const Presence = lazy(() => import('@/pages/Presence'));
+const PresenceLayout = lazy(() => import('@/pages/presence/PresenceLayout'));
+const PresenceOverview = lazy(() => import('@/pages/presence/Overview'));
+const PresenceReaders = lazy(() => import('@/pages/presence/Readers'));
+const PresenceCards = lazy(() => import('@/pages/presence/Cards'));
+const PresenceAttendanceLive = lazy(() => import('@/pages/presence/AttendanceLive'));
+const PresenceHistory = lazy(() => import('@/pages/presence/History'));
+const PresenceAnalytics = lazy(() => import('@/pages/presence/Analytics'));
+const PresenceSettings = lazy(() => import('@/pages/presence/Settings'));
+const PresenceSimulator = lazy(() => import('@/pages/presence/Simulator'));
 const FaceRecognition = lazy(() => import('@/pages/FaceRecognition'));
 const Twin = lazy(() => import('@/pages/Twin'));
 const Trust = lazy(() => import('@/pages/Trust'));
@@ -81,7 +89,16 @@ export default function App() {
           <Route path="/lumen" element={g(ADMIN, <Lumen />)} />
           <Route path="/kairos" element={g(STAFF, <Kairos />)} />
           <Route path="/foresight" element={g(ADMIN, <Foresight />)} />
-          <Route path="/presence" element={g(STAFF, <Presence />)} />
+          <Route path="/presence" element={g(STAFF, <PresenceLayout />)}>
+            <Route index element={<PresenceOverview />} />
+            <Route path="attendance" element={<PresenceAttendanceLive />} />
+            <Route path="history" element={<PresenceHistory />} />
+            <Route path="analytics" element={<PresenceAnalytics />} />
+            <Route path="readers" element={g(ADMIN, <PresenceReaders />)} />
+            <Route path="cards" element={g(ADMIN, <PresenceCards />)} />
+            <Route path="simulator" element={g(ADMIN, <PresenceSimulator />)} />
+            <Route path="settings" element={g(ADMIN, <PresenceSettings />)} />
+          </Route>
           <Route path="/face-recognition" element={g(STAFF, <FaceRecognition />)} />
           <Route path="/twin" element={g(STAFF, <Twin />)} />
           <Route path="/trust" element={g(ADMIN, <Trust />)} />
