@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PanelLeft } from 'lucide-react';
@@ -7,16 +8,46 @@ import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import { cn } from '@/lib/utils';
 
-/** Hover tooltip used by the rail — same treatment ChatGPT gives its sidebar. */
+/**
+ * Hover tooltip used by the rail. Rendered through a portal to <body> with
+ * fixed positioning — the sidebar is overflow-hidden (required by the width
+ * animation), so a tooltip absolutely-positioned inside it would be clipped
+ * and never visible.
+ */
 function Tip({ label, side = 'right' }: { label: string; side?: 'right' | 'bottom' }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const el = anchor.current?.parentElement;
+    if (!el) return;
+    const show = () => {
+      const r = el.getBoundingClientRect();
+      setPos(side === 'right' ? { x: r.right + 10, y: r.top + r.height / 2 } : { x: r.right, y: r.bottom + 8 });
+    };
+    const hide = () => setPos(null);
+    el.addEventListener('mouseenter', show);
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('click', hide);
+    return () => {
+      el.removeEventListener('mouseenter', show);
+      el.removeEventListener('mouseleave', hide);
+      el.removeEventListener('click', hide);
+    };
+  }, [side]);
+
   return (
-    <span
-      className={cn(
-        'pointer-events-none absolute z-50 hidden whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[0.7rem] font-medium text-white opacity-0 shadow-md transition-opacity group-hover:block group-hover:opacity-100',
-        side === 'right' ? 'left-[calc(100%+10px)] top-1/2 -translate-y-1/2' : 'right-0 top-[calc(100%+8px)]',
-      )}
-    >
-      {label}
+    <span ref={anchor} className="hidden" aria-hidden>
+      {pos &&
+        createPortal(
+          <span
+            className="pointer-events-none fixed z-[120] whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[0.7rem] font-medium text-white shadow-md"
+            style={side === 'right' ? { left: pos.x, top: pos.y, transform: 'translateY(-50%)' } : { left: pos.x, top: pos.y, transform: 'translateX(-100%)' }}
+          >
+            {label}
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }
@@ -28,6 +59,17 @@ function Tip({ label, side = 'right' }: { label: string; side?: 'right' | 'botto
  * icon rail where hovering the logo morphs it into the "Open sidebar" button.
  * Ctrl/⌘+B toggles from anywhere. State persisted across sessions.
  */
+// One accent per nav group — colour carries meaning (which area am I in?)
+// without turning the sidebar into a rainbow. Labels stay dark for contrast.
+const GROUP_TINT: Record<string, { label: string; icon: string }> = {
+  'Overview': { label: 'text-cyan-400/80', icon: 'text-cyan-400' },
+  'Pulse · ERP': { label: 'text-mint-400/80', icon: 'text-mint-400' },
+  'Engines': { label: 'text-coral-400/80', icon: 'text-coral-400' },
+  'Trust Core': { label: 'text-gold-400/80', icon: 'text-gold-400' },
+  'System': { label: 'text-slate-400', icon: 'text-slate-400' },
+};
+const tintFor = (group: string) => GROUP_TINT[group] ?? { label: 'text-slate-400', icon: 'text-slate-400' };
+
 export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: () => void; mobile?: boolean }) {
   const user = useAuth((s) => s.user);
   const railedPref = useUI((s) => s.railed);
@@ -65,6 +107,16 @@ export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: (
       initial={false}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       className="flex h-full shrink-0 flex-col overflow-hidden border-r border-line bg-surface"
+      style={{
+        // A whisper of the login page's pastel wash — light enough that the
+        // nav text keeps full contrast.
+        background: [
+          'radial-gradient(140% 30% at 50% 0%, rgba(147,197,253,0.16), transparent 70%)',
+          'radial-gradient(120% 30% at 50% 55%, rgba(196,181,253,0.10), transparent 70%)',
+          'radial-gradient(140% 32% at 50% 100%, rgba(249,168,212,0.16), transparent 70%)',
+          'linear-gradient(180deg, #fafcff 0%, #fdfbff 55%, #fffafc 100%)',
+        ].join(', '),
+      }}
     >
       {/* Header — wordmark + the sidebar's own toggle */}
       {railed ? (
