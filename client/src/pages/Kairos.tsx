@@ -1,204 +1,91 @@
-import { Fragment, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarClock, Zap, AlertTriangle, Wand2, ArrowRight } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { CalendarClock, History, LayoutDashboard } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useUI } from '@/store/ui';
 import { useAuth } from '@/store/auth';
 import PageHeader from '@/components/PageHeader';
-import { Card, Badge, LoadingScreen, Spinner, EmptyState } from '@/components/ui';
+import { Badge, LoadingScreen } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import type { Timetable, Conflict, ClassRow, TeacherRow } from '@/types';
+import type { KOverview } from './kairos/types';
+import OverviewTab from './kairos/OverviewTab';
+import TimetableTab from './kairos/TimetableTab';
+import HistoryTab from './kairos/HistoryTab';
 
+type Tab = 'overview' | 'timetable' | 'history';
+
+/**
+ * Kairos — the school's timetable, run like a product:
+ * Overview (status & actions) · Timetable (the grid) · History (versions).
+ * Three pages, no solver jargon; the intelligence stays behind the "Why?".
+ */
 export default function Kairos() {
-  const qc = useQueryClient();
-  const { pushToast } = useUI();
   const user = useAuth((s) => s.user)!;
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'].includes(user.role);
-  const [classId, setClassId] = useState('');
-  const [conflicts, setConflicts] = useState<Conflict[]>([]);
-  const [solveInfo, setSolveInfo] = useState<{ score: number; solveMs: number; placed: number } | null>(null);
-  const [whatIf, setWhatIf] = useState<any>(null);
+  const isPrincipal = ['SUPER_ADMIN', 'PRINCIPAL'].includes(user.role);
+  const [tab, setTab] = useState<Tab>(isAdmin ? 'overview' : 'timetable');
+  const [ttView, setTtView] = useState<'draft' | 'live'>('live');
 
-  const tt = useQuery({ queryKey: ['timetable'], queryFn: async () => (await api.get('/timetable')).data.timetable as Timetable | null });
-  const classes = useQuery({ queryKey: ['classes'], queryFn: async () => (await api.get('/classes')).data.classes as ClassRow[] });
-  const staff = useQuery({ queryKey: ['staff'], queryFn: async () => (await api.get('/staff')).data.teachers as TeacherRow[] });
-
-  const solve = useMutation({
-    mutationFn: async () => (await api.post('/timetable/solve', { persist: true })).data,
-    onSuccess: (res) => {
-      setConflicts(res.conflicts);
-      setSolveInfo({ score: res.score, solveMs: res.solveMs, placed: res.placed });
-      qc.invalidateQueries({ queryKey: ['timetable'] });
-      pushToast({ title: 'Solved', body: `${res.placed} slots · ${res.conflicts.length} conflicts · ${res.solveMs}ms`, severity: res.conflicts.length ? 'WARNING' : 'SUCCESS' });
-    },
+  const overview = useQuery({
+    queryKey: ['kairos-overview'],
+    queryFn: async () => (await api.get('/timetable/overview')).data as KOverview,
+    enabled: isAdmin || user.role === 'TEACHER',
   });
 
-  const simulate = useMutation({
-    mutationFn: async (teacherId: string) => (await api.post('/timetable/what-if', { teacherId })).data,
-    onSuccess: (res) => setWhatIf(res),
-  });
-
-  const activeClass = classId || classes.data?.[0]?.id;
-  const slots = tt.data?.slots.filter((s) => s.classId === activeClass) ?? [];
-  const days = tt.data?.days ?? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const periods = tt.data?.periods ?? ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
-  const cell = (d: number, p: number) => slots.find((s) => s.day === d && s.period === p);
+  const active = overview.data?.active;
+  const tabs: { key: Tab; label: string; icon: typeof LayoutDashboard; show: boolean }[] = [
+    { key: 'overview', label: 'Overview', icon: LayoutDashboard, show: isAdmin || user.role === 'TEACHER' },
+    { key: 'timetable', label: 'Timetable', icon: CalendarClock, show: true },
+    { key: 'history', label: 'History', icon: History, show: isAdmin || user.role === 'TEACHER' },
+  ];
 
   return (
     <div>
       <PageHeader
         overline="Engine 02 · Kairos"
-        title="A timetable that explains itself"
-        subtitle="CP-style feasibility + soft refine. When a perfect fit is impossible, Kairos tells you exactly which rule to bend."
+        title="Timetable"
+        subtitle="Generate, review, publish — and always know why every lesson is where it is."
         actions={
-          <div className="flex gap-2">
-            <select value={activeClass} onChange={(e) => setClassId(e.target.value)} className="input w-28">
-              {classes.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            {isAdmin && (
-              <button onClick={() => solve.mutate()} disabled={solve.isPending} className="btn-primary">
-                {solve.isPending ? <Spinner /> : <><Zap className="h-4 w-4" /> Solve</>}
-              </button>
-            )}
-          </div>
+          active ? (
+            <div className="flex items-center gap-2">
+              <Badge severity="SUCCESS">v{active.version} live</Badge>
+              <Badge>Health {active.score}/100</Badge>
+            </div>
+          ) : undefined
         }
       />
 
-      {(solveInfo || tt.data) && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <Badge severity="INFO"><CalendarClock className="h-3.5 w-3.5" /> Score {solveInfo?.score ?? tt.data?.score ?? 0}/100</Badge>
-          {solveInfo && <Badge>{solveInfo.solveMs}ms solve</Badge>}
-          {solveInfo && <Badge>{solveInfo.placed} slots placed</Badge>}
-          {conflicts.length > 0 && <Badge severity="CRITICAL"><AlertTriangle className="h-3.5 w-3.5" /> {conflicts.length} conflicts</Badge>}
-        </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          {tt.isLoading ? <LoadingScreen /> : tt.data ? (
-            <div className="surface overflow-hidden">
-              {/* Day header — a sticky rule, calendar-style */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[620px]">
-                  <div className="grid border-b border-line bg-ink-800/40" style={{ gridTemplateColumns: `52px repeat(${days.length}, 1fr)` }}>
-                    <div />
-                    {days.map((d) => (
-                      <div key={d} className="border-l border-line py-2.5 text-center text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                        {d}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid" style={{ gridTemplateColumns: `52px repeat(${days.length}, 1fr)` }}>
-                    {periods.map((pLabel, p) => (
-                      <Fragment key={`p-${p}`}>
-                        <div className="flex items-start justify-center border-b border-line pt-3 text-[0.62rem] font-semibold text-slate-400">
-                          {pLabel}
-                        </div>
-                        {days.map((_, d) => {
-                          const c = cell(d, p);
-                          return (
-                            <motion.div
-                              key={`${d}-${p}`}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={{ delay: (d + p) * 0.008, duration: 0.2 }}
-                              className="border-b border-l border-line p-1"
-                            >
-                              {c ? (
-                                <div
-                                  className="group h-full cursor-default rounded-[7px] px-2 py-1.5 text-[0.68rem] leading-tight transition-shadow hover:shadow-sm"
-                                  style={{ background: `${c.subjectColor}12`, boxShadow: `inset 2px 0 0 ${c.subjectColor}` }}
-                                  title={`${c.subject} · ${c.teacher}${c.room ? ' · ' + c.room : ''}`}
-                                >
-                                  <div className="truncate font-semibold text-slate-800">{c.subject}</div>
-                                  <div className="truncate text-slate-400">{c.teacher.split(' ').slice(-1)}</div>
-                                  {c.room && <div className="truncate text-[0.62rem] text-slate-300">{c.room}</div>}
-                                </div>
-                              ) : (
-                                <div className="h-full min-h-[54px] rounded-[7px] bg-ink-800/30" />
-                              )}
-                            </motion.div>
-                          );
-                        })}
-                      </Fragment>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Subject legend */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5">
-                {[...new Map(slots.map((s) => [s.subject, s.subjectColor])).entries()].map(([name, color]) => (
-                  <span key={name} className="flex items-center gap-1.5 text-[0.68rem] text-slate-500">
-                    <span className="h-2 w-2 rounded-[2px]" style={{ background: color as string }} /> {name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : <EmptyState icon={<CalendarClock className="h-8 w-8" />} title="No timetable yet" hint="Hit Solve to generate one." />}
-
-          {/* What-if simulation */}
-          <Card className="mt-6">
-            <div className="mb-3 flex items-center gap-2"><Wand2 className="h-4 w-4 text-brand-400" /><h2 className="font-bold text-slate-900">What-if: teacher out today</h2></div>
-            <div className="flex flex-wrap gap-2">
-              {staff.data?.slice(0, 6).map((t) => (
-                <button key={t.id} onClick={() => simulate.mutate(t.id)} className="chip surface-hover hover:!text-slate-900">{t.name}</button>
-              ))}
-            </div>
-            <AnimatePresence>
-              {whatIf && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 overflow-hidden">
-                  <div className="text-sm text-slate-500">Re-optimised <span className="font-bold text-slate-900">{whatIf.affectedCount}</span> affected cells only:</div>
-                  <div className="mt-2 space-y-1.5">
-                    {whatIf.suggestions.map((s: any, i: number) => (
-                      <div key={i} className="flex items-center gap-2 rounded-lg border border-line bg-ink-800/60 px-3 py-2 text-xs">
-                        <Badge>{s.className}</Badge>
-                        <span className="text-slate-500">{s.subject}</span>
-                        <ArrowRight className="h-3 w-3 text-slate-400" />
-                        <span className="font-semibold text-mint-400">{s.suggestedTeacher}</span>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Card>
-        </div>
-
-        {/* Explainable conflicts */}
-        <div>
-          <h2 className="mb-3 font-bold text-slate-900">Explainable conflicts</h2>
-          {conflicts.length === 0 ? (
-            <Card className="text-center text-sm text-slate-500">
-              {solveInfo ? '✓ No conflicts — every class placed.' : 'Run Solve to surface the minimal unsatisfiable core and cheapest fixes.'}
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {conflicts.map((c, i) => (
-                <motion.div key={i} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}>
-                  <Card className="!border-rose-400/20 !bg-rose-500/[0.04]">
-                    <div className="flex items-start gap-2">
-                      <span className="text-rose-400">✕</span>
-                      <div className="text-sm font-bold text-slate-900">{c.reason}</div>
-                    </div>
-                    <div className="mt-1 pl-5 font-mono text-xs text-slate-500">cause: {c.cause}</div>
-                    <div className="mt-3 space-y-1.5 pl-5">
-                      {c.fixes.map((f, j) => (
-                        <div key={j} className="flex items-start gap-2 text-xs">
-                          <span className="mt-0.5 text-mint-400">→</span>
-                          <div><span className="font-semibold text-mint-400">{f.label}</span><span className="text-slate-500"> · {f.detail}</span></div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Three pages, one quiet tab rail */}
+      <div className="mb-6 flex gap-1 border-b border-line">
+        {tabs.filter((t) => t.show).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              'flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors',
+              tab === key ? 'border-brand-500 text-brand-600' : 'border-transparent text-slate-400 hover:text-slate-700',
+            )}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
       </div>
+
+      {tab === 'overview' &&
+        (overview.isLoading || !overview.data ? (
+          <LoadingScreen label="Checking timetable status…" />
+        ) : (
+          <OverviewTab
+            overview={overview.data}
+            isAdmin={isAdmin}
+            isPrincipal={isPrincipal}
+            onGoToTimetable={(v) => {
+              setTtView(v);
+              setTab('timetable');
+            }}
+          />
+        ))}
+      {tab === 'timetable' && <TimetableTab isAdmin={isAdmin} view={ttView} onViewChange={setTtView} />}
+      {tab === 'history' && <HistoryTab isPrincipal={isPrincipal} />}
     </div>
   );
 }

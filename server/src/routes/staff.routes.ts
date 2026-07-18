@@ -50,15 +50,21 @@ router.post(
     const { teacherId, date, reason } = req.body as z.infer<typeof absenceSchema>;
     const teacher = await prisma.teacher.findFirst({ where: { id: teacherId, schoolId }, include: { user: true } });
     if (!teacher) throw notFound('Teacher not found');
-    const absence = await prisma.staffAbsence.create({ data: { teacherId, date, reason } });
-
-    // Suggest a substitute: least-loaded qualified teacher not already absent.
-    const candidates = await prisma.teacher.findMany({
-      where: { schoolId, id: { not: teacherId } },
-      include: { user: true },
-      orderBy: { weeklyHours: 'asc' },
+    // Idempotent: marking the same teacher absent twice must not error.
+    const absence = await prisma.staffAbsence.upsert({
+      where: { teacherId_date: { teacherId, date } },
+      create: { teacherId, date, reason },
+      update: { reason },
     });
-    const suggestion = candidates[0];
+
+    // Ask the Kairos substitute engine for a real suggestion (qualified,
+    // free that period, within load limits) rather than just least-loaded.
+    const { planSubstitutes } = await import('../services/kairos/index.js');
+    const plan = await planSubstitutes(schoolId, teacherId, date);
+    const first = plan.suggestions.find((s) => s.candidate)?.candidate ?? null;
+    const suggestion = first
+      ? await prisma.teacher.findUnique({ where: { id: first.teacherId }, include: { user: true } })
+      : null;
 
     await recordEvent({
       schoolId,

@@ -33,6 +33,7 @@ model School {
   attendance    Attendance[]
   documents     Document[]
   timetables    Timetable[]
+  academicConfig AcademicConfig?
   fees          Fee[]
   notifications Notification[]
   events        Event[]
@@ -92,6 +93,12 @@ model Teacher {
   maxHours      Int      @default(24)      // weekly cap (Kairos hard constraint)
   weeklyHours   Int      @default(0)       // current assigned load
   subjectsString  String?                      // qualified subject codes
+  // ── Kairos scheduling constraints (all hard unless noted) ──
+  maxDailyPeriods Int    @default(6)       // most periods allowed in one day
+  maxConsecutive  Int    @default(3)       // longest back-to-back run allowed
+  partTime        Boolean @default(false)  // shown in planner; caps still rule
+  unavailableString   String?              // JSON [{day,period}] — never schedule
+  preferredFreeString String?              // JSON [{day,period}] — soft preference
   faceEnrolled  Boolean  @default(false)
   faceCount     Int      @default(0)
   createdAt     DateTime @default(now())
@@ -179,6 +186,7 @@ model Class {
   students   Student[]
   attendance Attendance[]
   slots      TimetableSlot[]
+  subjectPlans ClassSubjectPlan[]
 
   @@unique([schoolId, grade, section])
 }
@@ -195,6 +203,7 @@ model Subject {
   cognitiveLoad Int   @default(3)            // 1..5, used by Kairos soft spread
 
   slots TimetableSlot[]
+  classPlans ClassSubjectPlan[]
 
   @@unique([schoolId, code])
 }
@@ -222,6 +231,7 @@ model Room {
   capacity    Int     @default(40)
   floor       Int     @default(0)
   hasProjector Boolean @default(false)
+  unavailableString String?                 // JSON [{day,period}] — maintenance etc.
 
   classes Class[]
   slots   TimetableSlot[]
@@ -362,24 +372,76 @@ model ExtractedField {
 }
 
 // ──────────────────────────  KAIROS (TIMETABLE)  ────────────────────
+// The school's operating calendar — working days, timings, breaks, blocked
+// cells (assembly), holidays and exam weeks. One row per school; the solver
+// derives its grid from this, falling back to sane defaults when absent.
+model AcademicConfig {
+  id             String  @id @default(cuid())
+  schoolId       String  @unique
+  school         School  @relation(fields: [schoolId], references: [id])
+  academicYear   String  @default("2026-27")
+  termsString    String?                        // JSON [{name,start,end}]
+  workingDays    Int     @default(5)            // Mon..Mon+n-1
+  dayStart       String  @default("08:00")
+  periodMinutes  Int     @default(45)
+  periodsPerDay  Int     @default(8)
+  breaksString   String?                        // JSON [{after,name,minutes}]
+  blockedString  String?                        // JSON [{day,period,reason}] — assembly etc.
+  holidaysString String?                        // JSON ["YYYY-MM-DD"]
+  examWeeksString String?                       // JSON [{name,start,end}]
+  updatedAt      DateTime @default(now()) @updatedAt
+}
+
+// Curriculum: which subjects a class actually studies, and how often.
+// This is what drives generation — Kairos never assumes every subject
+// belongs to every class.
+model ClassSubjectPlan {
+  id            String  @id @default(cuid())
+  classId       String
+  class         Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId     String
+  subject       Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  weeklyPeriods Int     @default(4)
+  requiresLab   Boolean @default(false)
+  elective      Boolean @default(false)
+
+  @@unique([classId, subjectId])
+}
+
+// status ∈ DRAFT | APPROVED | PUBLISHED | ARCHIVED. Exactly one row per
+// school is (active=true, status=PUBLISHED) — everything downstream
+// (dashboards, twin, attendance) reads that one. Publishing is transactional:
+// the old version is archived and the new one activated atomically, so the
+// school is never left without a live timetable.
 model Timetable {
   id        String   @id @default(cuid())
   schoolId  String
   school    School   @relation(fields: [schoolId], references: [id])
   name      String
-  active    Boolean  @default(true)
+  status    String   @default("DRAFT")
+  version   Int      @default(0)               // assigned at publish time
+  active    Boolean  @default(false)
   solveMs   Int      @default(0)
   score     Float    @default(0)
+  healthString String?                         // JSON {breakdown,warnings,recommendations,unplaced}
+  generatedByName String?
+  approvedByName  String?
+  approvedAt      DateTime?
+  publishedByName String?
+  publishedAt     DateTime?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   slots TimetableSlot[]
+
+  @@index([schoolId, status])
 }
 
 model TimetableSlot {
   id          String   @id @default(cuid())
   timetableId String
   timetable   Timetable @relation(fields: [timetableId], references: [id], onDelete: Cascade)
-  day         Int                                // 0=Mon .. 4=Fri
+  day         Int                                // 0=Mon .. workingDays-1
   period      Int                                // 0-indexed
   classId     String
   class       Class    @relation(fields: [classId], references: [id])
@@ -389,7 +451,14 @@ model TimetableSlot {
   teacher     Teacher  @relation(fields: [teacherId], references: [id])
   roomId      String?
   room        Room?    @relation(fields: [roomId], references: [id])
+  locked      Boolean  @default(false)           // survives regeneration
+  explainString String?                          // JSON SlotExplanation — the "Why?"
 
+  // Hard guarantees at the database level: within one timetable a class,
+  // a teacher and a room can each occupy a day-period cell only once.
+  @@unique([timetableId, classId, day, period])
+  @@unique([timetableId, teacherId, day, period])
+  @@unique([timetableId, roomId, day, period])
   @@index([timetableId, day, period])
 }
 
@@ -402,6 +471,8 @@ model StaffAbsence {
   createdAt DateTime @default(now())
 
   substitutions Substitution[]
+
+  @@unique([teacherId, date])
 }
 
 model Substitution {
@@ -412,6 +483,10 @@ model Substitution {
   subTeacher  Teacher  @relation("SubTeacher", fields: [subTeacherId], references: [id])
   day         Int
   period      Int
+  classId     String?                            // snapshot of the covered slot
+  subjectId   String?
+  reasonString String?                           // JSON string[] — why this teacher
+  confidence  Float    @default(0)
   accepted    Boolean  @default(false)
   createdAt   DateTime @default(now())
 }

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { generateTimetable, persistTimetable } from '../src/services/kairos.js';
+import { generateDraft, approveDraft, publishDraft } from '../src/services/kairos/index.js';
 
 const prisma = new PrismaClient();
 
@@ -32,6 +32,8 @@ async function main() {
     prisma.staffAbsence.deleteMany(),
     prisma.timetableSlot.deleteMany(),
     prisma.timetable.deleteMany(),
+    prisma.classSubjectPlan.deleteMany(),
+    prisma.academicConfig.deleteMany(),
     prisma.extractedField.deleteMany(),
     prisma.document.deleteMany(),
     prisma.attendance.deleteMany(),
@@ -106,16 +108,22 @@ async function main() {
     data: { schoolId, email: 'super@meridian.school', password: hash, name: 'System Owner', role: 'SUPER_ADMIN' },
   });
 
-  // ── Teachers ──
-  const teacherDefs = [
+  // ── Teachers — with real Kairos constraints ──
+  const teacherDefs: {
+    name: string; dept: string; subjects: string[]; maxHours: number;
+    maxDaily?: number; maxConsecutive?: number; partTime?: boolean;
+    unavailable?: { day: number; period: number }[];
+    preferredFree?: { day: number; period: number }[];
+  }[] = [
     { name: 'Mr. Rao', dept: 'Mathematics', subjects: ['MATH'], maxHours: 24 },
-    { name: 'Ms. Iyer', dept: 'Science', subjects: ['SCI', 'MATH'], maxHours: 26 },
-    { name: 'Mrs. Sharma', dept: 'English', subjects: ['ENG'], maxHours: 24 },
-    { name: 'Mr. Khan', dept: 'Social Studies', subjects: ['SST', 'HIN'], maxHours: 24 },
-    { name: 'Ms. Nair', dept: 'Computer Science', subjects: ['CS', 'MATH'], maxHours: 22 },
+    { name: 'Ms. Iyer', dept: 'Science', subjects: ['SCI', 'MATH'], maxHours: 26, maxDaily: 7 },
+    { name: 'Mrs. Sharma', dept: 'English', subjects: ['ENG'], maxHours: 24, preferredFree: [{ day: 4, period: 7 }] },
+    { name: 'Mr. Khan', dept: 'Social Studies', subjects: ['SST', 'HIN'], maxHours: 24, unavailable: [{ day: 2, period: 6 }, { day: 2, period: 7 }] },
+    // Part-timer: 14 periods/week, off every Friday.
+    { name: 'Ms. Nair', dept: 'Computer Science', subjects: ['CS', 'MATH'], maxHours: 14, partTime: true, unavailable: Array.from({ length: 8 }, (_, p) => ({ day: 4, period: p })) },
     { name: 'Mr. Bose', dept: 'Science', subjects: ['SCI'], maxHours: 24 },
     { name: 'Mrs. Gupta', dept: 'Hindi', subjects: ['HIN', 'SST'], maxHours: 24 },
-    { name: 'Mr. Reddy', dept: 'Physical Ed', subjects: ['PE'], maxHours: 20 },
+    { name: 'Mr. Reddy', dept: 'Physical Ed', subjects: ['PE'], maxHours: 20, maxConsecutive: 4 },
     { name: 'Ms. Kapoor', dept: 'English', subjects: ['ENG', 'SST'], maxHours: 24 },
     { name: 'Mr. Verma', dept: 'Mathematics', subjects: ['MATH', 'CS'], maxHours: 24 },
   ];
@@ -139,6 +147,11 @@ async function main() {
         department: d.dept,
         qualification: 'M.Sc / B.Ed',
         maxHours: d.maxHours,
+        maxDailyPeriods: d.maxDaily ?? 6,
+        maxConsecutive: d.maxConsecutive ?? 3,
+        partTime: d.partTime ?? false,
+        unavailableString: toJson(d.unavailable ?? []),
+        preferredFreeString: toJson(d.preferredFree ?? []),
         subjectsString: toJson(d.subjects),
       },
     });
@@ -169,6 +182,60 @@ async function main() {
     data: { schoolId, grade: 9, section: 'B', name: '9B', roomId: classrooms[5].id, classTeacherId: teachers[5].id },
   });
   classes.push(class9b);
+
+  // ── Kairos: academic calendar ──
+  await prisma.academicConfig.create({
+    data: {
+      schoolId,
+      academicYear: '2026-27',
+      workingDays: 5,
+      dayStart: '08:00',
+      periodMinutes: 45,
+      periodsPerDay: 8,
+      termsString: toJson([
+        { name: 'Term 1', start: '2026-06-08', end: '2026-10-30' },
+        { name: 'Term 2', start: '2026-11-16', end: '2027-03-31' },
+      ]),
+      breaksString: toJson([
+        { after: 1, name: 'Short break', minutes: 10 },
+        { after: 4, name: 'Lunch', minutes: 40 },
+      ]),
+      blockedString: toJson([{ day: 0, period: 0, reason: 'Assembly' }]),
+      holidaysString: toJson(['2026-08-15', '2026-10-02', '2026-10-20']),
+      examWeeksString: toJson([{ name: 'Mid-term exams', start: '2026-09-14', end: '2026-09-19' }]),
+    },
+  });
+
+  // ── Kairos: curriculum per class (grade-appropriate, drives generation) ──
+  const subjectId = (code: string) => subjects.find((s) => s.code === code)!.id;
+  const curriculumFor = (grade: number): { code: string; weekly: number; lab?: boolean }[] =>
+    grade <= 7
+      ? [
+          { code: 'MATH', weekly: 6 }, { code: 'ENG', weekly: 5 }, { code: 'SCI', weekly: 5, lab: true },
+          { code: 'SST', weekly: 5 }, { code: 'HIN', weekly: 4 }, { code: 'CS', weekly: 3, lab: true },
+          { code: 'PE', weekly: 3 },
+        ]
+      : grade === 8
+        ? [
+            { code: 'MATH', weekly: 6 }, { code: 'ENG', weekly: 5 }, { code: 'SCI', weekly: 6, lab: true },
+            { code: 'SST', weekly: 5 }, { code: 'HIN', weekly: 3 }, { code: 'CS', weekly: 3, lab: true },
+            { code: 'PE', weekly: 3 },
+          ]
+        : [
+            { code: 'MATH', weekly: 7 }, { code: 'ENG', weekly: 5 }, { code: 'SCI', weekly: 6, lab: true },
+            { code: 'SST', weekly: 5 }, { code: 'HIN', weekly: 3 }, { code: 'CS', weekly: 4, lab: true },
+            { code: 'PE', weekly: 2 },
+          ];
+  for (const cls of classes) {
+    await prisma.classSubjectPlan.createMany({
+      data: curriculumFor(cls.grade).map((p) => ({
+        classId: cls.id,
+        subjectId: subjectId(p.code),
+        weeklyPeriods: p.weekly,
+        requiresLab: p.lab ?? false,
+      })),
+    });
+  }
 
   // ── Students + Parents + RFID ──
   let rollGlobal = 0;
@@ -327,14 +394,21 @@ async function main() {
   }
   await prisma.aILog.createMany({ data: aiRows });
 
-  // ── Timetable (Kairos) — generate + persist an active schedule ──
-  const tt = await generateTimetable(schoolId);
-  await persistTimetable(schoolId, tt, 'Term timetable');
-  const load: Record<string, number> = {};
-  for (const slot of tt.slots) load[slot.teacherId] = (load[slot.teacherId] ?? 0) + 1;
-  for (const [tid, hrs] of Object.entries(load)) {
-    await prisma.teacher.update({ where: { id: tid }, data: { weeklyHours: hrs } });
+  // ── Timetable (Kairos) — run the real production workflow:
+  //    generate draft → principal approves → principal publishes v1.
+  const principalUser = await prisma.user.findUnique({ where: { email: 'principal@meridian.school' } });
+  const principal = { id: principalUser?.id, name: principalUser?.name ?? 'Dr. Kavita Menon' };
+  const outcome = await generateDraft(schoolId, principal);
+  if (!outcome.ok) {
+    console.error('Kairos pre-validation blocked generation:', outcome.issues);
+    throw new Error('Seed curriculum is infeasible — fix seed data');
   }
+  console.log(
+    `   Kairos: placed ${outcome.result!.stats.placed}/${outcome.result!.stats.total} periods, ` +
+      `score ${outcome.result!.score}/100, ${outcome.result!.unplaced.length} unplaced, in ${outcome.result!.solveMs}ms`,
+  );
+  await approveDraft(schoolId, principal);
+  await publishDraft(schoolId, principal);
 
   // ── Settings ──
   await prisma.setting.create({ data: { schoolId, key: 'branding', valueString: toJson({ primary: '#8B5CF6', accent: '#00E5FF' }) } });

@@ -39,11 +39,27 @@ export function useRealtime() {
     };
     const onEmergencyResolve = () => qc.invalidateQueries({ queryKey: ['emergency'] });
 
+    // A publish (or rollback) swaps the school's live timetable — every view
+    // that consumes it refreshes instantly: Kairos itself, teacher/student
+    // dashboards, the digital twin, staff loads. No reload, no stale schedule.
+    // (The toast comes via the school-wide notification, so none here.)
+    const TIMETABLE_REACTIVE = [
+      'kairos-live', 'kairos-overview', 'kairos-versions', 'kairos-draft',
+      'teacher-dashboard', 'me-dashboard', 'twin', 'stats', 'command-center', 'staff',
+    ];
+    const onTimetablePublished = () => TIMETABLE_REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    const onTimetableDraft = () => {
+      qc.invalidateQueries({ queryKey: ['kairos-overview'] });
+      qc.invalidateQueries({ queryKey: ['kairos-draft'] });
+    };
+
     socket.on('notification:new', onNotification);
     socket.on('event:new', onEvent);
     socket.on('presence:tap', onPresence);
     socket.on('emergency:trigger', onEmergency);
     socket.on('emergency:resolve', onEmergencyResolve);
+    socket.on('timetable:published', onTimetablePublished);
+    socket.on('timetable:draft', onTimetableDraft);
 
     return () => {
       socket.off('notification:new', onNotification);
@@ -51,6 +67,8 @@ export function useRealtime() {
       socket.off('presence:tap', onPresence);
       socket.off('emergency:trigger', onEmergency);
       socket.off('emergency:resolve', onEmergencyResolve);
+      socket.off('timetable:published', onTimetablePublished);
+      socket.off('timetable:draft', onTimetableDraft);
     };
   }, [user, qc, pushToast]);
 }

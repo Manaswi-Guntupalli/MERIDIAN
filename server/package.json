@@ -14,6 +14,8 @@
     "db:reset": "prisma db push --force-reset && prisma generate",
     "seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "kairos:audit": "tsx scripts/audit-kairos.ts",
     "lumen:fixtures": "tsx scripts/generate-fixtures.ts",
     "lumen:bench": "tsx scripts/benchmark-lumen.ts"
   },
@@ -56,6 +58,7 @@
     "pdfkit": "^0.19.1",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }
