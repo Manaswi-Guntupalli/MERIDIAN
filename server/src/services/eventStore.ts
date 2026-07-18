@@ -140,6 +140,10 @@ const reversers: Record<string, Reverser> = {
       // swallowed that failure into a silent non-undo.
       await tx.studentParent.deleteMany({ where: { studentId: p.refId } });
       await tx.student.delete({ where: { id: p.refId } }).catch(() => {});
+      // The student's own login account, if this commit created one.
+      if (p.createdStudentUserId) {
+        await tx.user.delete({ where: { id: p.createdStudentUserId } }).catch(() => {});
+      }
       // If the commit created a parent portal account, it goes too — but only
       // when this student was its sole reason to exist. A parent linked to
       // another child (the sibling case) keeps their account.

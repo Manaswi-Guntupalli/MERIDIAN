@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Bell, LogOut, ShieldAlert, Menu, ChevronDown, UserRound, PanelLeft } from 'lucide-react';
+import { Search, Bell, LogOut, ShieldAlert, Menu, ChevronDown, UserRound, Eye } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
@@ -11,9 +11,8 @@ import { initials, roleLabel } from '@/lib/utils';
 export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
+  const exitImpersonation = useAuth((s) => s.exitImpersonation);
   const setPalette = useUI((s) => s.setPalette);
-  const railed = useUI((s) => s.railed);
-  const toggleRail = useUI((s) => s.toggleRail);
   const navigate = useNavigate();
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -41,22 +40,29 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const isStaff = user && ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL', 'TEACHER'].includes(user.role);
 
   return (
+    <>
+      {/* Impersonation is never invisible: while a Super Admin wears someone
+          else's session, an unmissable banner says so, names both parties,
+          and offers the way out. */}
+      {user?.impersonator && (
+        <div className="sticky top-0 z-40 flex items-center justify-center gap-3 bg-amber-400/15 px-4 py-1.5 text-[0.75rem] font-medium text-amber-700 backdrop-blur-sm">
+          <Eye className="h-3.5 w-3.5" />
+          <span>
+            Viewing as <b>{user.name}</b> ({roleLabel[user.role]}) — impersonated by {user.impersonator.name}
+          </span>
+          <button
+            onClick={() => void exitImpersonation()}
+            className="rounded-md border border-amber-500/40 px-2 py-0.5 text-[0.7rem] font-bold text-amber-700 transition hover:bg-amber-400/20"
+          >
+            Exit
+          </button>
+        </div>
+      )}
     <header className="sticky top-0 z-30 flex h-[60px] items-center gap-2 border-b border-line bg-canvas/85 px-4 backdrop-blur-md lg:px-7">
-      {/* Mobile: open the drawer */}
+      {/* Mobile: open the drawer. On desktop the toggle lives inside the
+          sidebar itself (ChatGPT-style), so the topbar carries none. */}
       <button onClick={onMenu} className="btn-quiet -ml-1 !px-2 lg:hidden" aria-label="Open navigation">
         <Menu className="h-[18px] w-[18px]" />
-      </button>
-
-      {/* Desktop: the ONE sidebar toggle. Always visible in both states so the
-          rail can never trap you with no way back. */}
-      <button
-        onClick={toggleRail}
-        className="btn-quiet -ml-1 hidden !px-2 lg:inline-flex"
-        title={railed ? 'Expand sidebar' : 'Collapse sidebar'}
-        aria-label={railed ? 'Expand sidebar' : 'Collapse sidebar'}
-        aria-pressed={railed}
-      >
-        <PanelLeft className="h-[17px] w-[17px]" strokeWidth={1.9} />
       </button>
 
       {/* Search — the ⌘K entry point */}
@@ -130,5 +136,6 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
         </AnimatePresence>
       </div>
     </header>
+    </>
   );
 }

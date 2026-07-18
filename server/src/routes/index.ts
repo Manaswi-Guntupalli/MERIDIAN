@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import auth from './auth.routes.js';
+import users from './users.routes.js';
 import dashboard from './dashboard.routes.js';
 import students from './students.routes.js';
 import staff from './staff.routes.js';
@@ -20,6 +21,7 @@ import face from './face.routes.js';
 const api = Router();
 
 api.use('/auth', auth);
+api.use('/users', users);
 api.use('/dashboard', dashboard);
 api.use('/students', students);
 api.use('/staff', staff);

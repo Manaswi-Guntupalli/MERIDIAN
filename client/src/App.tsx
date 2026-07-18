@@ -26,12 +26,18 @@ const Copilot = lazy(() => import('@/pages/Copilot'));
 const Notifications = lazy(() => import('@/pages/Notifications'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Forbidden = lazy(() => import('@/pages/Forbidden'));
+const Users = lazy(() => import('@/pages/Users'));
+const ChangePassword = lazy(() => import('@/pages/ChangePassword'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <div className="grid h-screen place-items-center"><LoadingScreen label="Restoring session…" /></div>;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  // Temp-credential holders see exactly one screen until they set their own
+  // password. The server enforces the same rule (428 on everything else) —
+  // this is the friendly face of it, not the security.
+  if (user.mustChangePassword) return <ChangePassword />;
   return <>{children}</>;
 }
 
@@ -83,6 +89,7 @@ export default function App() {
           <Route path="/emergency" element={g(STAFF, <Emergency />)} />
           <Route path="/copilot" element={g(ADMIN, <Copilot />)} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/users" element={g(ADMIN, <Users />)} />
           <Route path="/settings" element={g(SUPER, <Settings />)} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

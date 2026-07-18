@@ -19,15 +19,21 @@
 //      parent portal account linked to the child. What can't become a column
 //      is still on the archived document, one click away.
 
-import bcrypt from 'bcryptjs';
-import crypto from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { badRequest } from '../../lib/errors.js';
+import { hashPassword, generateTempPassword } from '../../lib/auth.js';
 import { recordEvent } from '../eventStore.js';
 import { templateFor } from './templates.js';
 
 type Tx = Prisma.TransactionClient;
+
+/** A freshly-minted login. Shown to the clerk exactly once, never stored. */
+export interface IssuedCredential {
+  label: string;
+  email: string;
+  tempPassword: string;
+}
 
 export interface CommitResult {
   kind: 'STUDENT' | 'TEACHER';
@@ -36,6 +42,9 @@ export interface CommitResult {
   summary: string;
   /** Facts the clerk should know about how the record was assembled. */
   notes: string[];
+  /** Logins created by this commit — temp passwords, forced to rotate at
+   *  first sign-in. The response is their only existence in plaintext. */
+  credentials: IssuedCredential[];
   /** Fired after the transaction commits — announces the Trust event. */
   emitEvent: () => void;
 }
@@ -56,10 +65,37 @@ function parseDob(iso: string): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-/** A random-entropy hash: the account exists but nobody can log into it until
- *  an admin sets a real password. Never a guessable default. */
-async function unusablePassword(): Promise<string> {
-  return bcrypt.hash(crypto.randomBytes(24).toString('base64url'), 10);
+/**
+ * Every account this module creates gets a memorable temporary password and
+ * `mustChangePassword` — usable immediately, forced to rotate at first login.
+ * (An earlier version created accounts with random unusable hashes; they were
+ * "secure" in the way a bricked phone is secure. Accounts exist to be used.)
+ */
+async function provisionUser(
+  tx: Tx,
+  data: { schoolId: string; email: string; name: string; role: string; phone?: string },
+  credentials: IssuedCredential[],
+  label: string,
+): Promise<{ id: string }> {
+  const tempPassword = generateTempPassword();
+  const user = await tx.user.create({
+    data: {
+      ...data,
+      password: await hashPassword(tempPassword),
+      mustChangePassword: true,
+    },
+  });
+  credentials.push({ label, email: data.email, tempPassword });
+  return user;
+}
+
+/**
+ * Students rarely arrive with their own email, so the login is synthesized
+ * from the admission number — unique by construction, printable on the ID
+ * card, and obvious to everyone who needs to know it.
+ */
+function studentEmail(admissionNo: string): string {
+  return `${admissionNo.toLowerCase().replace(/[^a-z0-9-]/g, '')}@student.meridian.school`;
 }
 
 async function commitStudent(
@@ -67,7 +103,8 @@ async function commitStudent(
   schoolId: string,
   fields: FieldRow[],
   notes: string[],
-): Promise<{ id: string; name: string; summary: string; createdParentId?: string }> {
+  credentials: IssuedCredential[],
+): Promise<{ id: string; name: string; summary: string; createdParentId?: string; createdStudentUserId?: string }> {
   const name = get(fields, 'studentName');
   if (!name) throw badRequest('Cannot commit: the student name field is empty.');
 
@@ -119,6 +156,16 @@ async function commitStudent(
   // The contact block — the fields an earlier version dropped on the floor.
   // These are what the office actually dials in an emergency.
   const guardianName = get(fields, 'guardianName') || get(fields, 'fatherName') || get(fields, 'motherName');
+
+  // ── The student's own login. ──
+  const studentUser = await provisionUser(
+    tx,
+    { schoolId, email: studentEmail(admissionNo), name, role: 'STUDENT' },
+    credentials,
+    `Student · ${name}`,
+  );
+  const createdStudentUserId = studentUser.id;
+
   const student = await tx.student.create({
     data: {
       schoolId,
@@ -126,6 +173,7 @@ async function commitStudent(
       admissionNo,
       rollNo,
       classId,
+      userId: studentUser.id,
       gender: get(fields, 'gender') || undefined,
       dob: parseDob(get(fields, 'dob')),
       bloodGroup: get(fields, 'bloodGroup') || undefined,
@@ -162,26 +210,22 @@ async function commitStudent(
     } else {
       const relation = get(fields, 'fatherName') === guardianName ? 'Father'
         : get(fields, 'motherName') === guardianName ? 'Mother' : 'Guardian';
-      const user = await tx.user.create({
-        data: {
-          schoolId,
-          email: guardianEmail,
-          password: await unusablePassword(),
-          name: guardianName,
-          role: 'PARENT',
-          phone: get(fields, 'phone') || undefined,
-        },
-      });
+      const user = await provisionUser(
+        tx,
+        { schoolId, email: guardianEmail, name: guardianName, role: 'PARENT', phone: get(fields, 'phone') || undefined },
+        credentials,
+        `Parent · ${guardianName}`,
+      );
       const parent = await tx.parent.create({ data: { schoolId, userId: user.id, relation } });
       await tx.studentParent.create({ data: { studentId: student.id, parentId: parent.id } });
       createdParentId = parent.id;
-      notes.push(`Parent portal account created for ${guardianName} (${guardianEmail}) — an admin sets the password before first sign-in.`);
+      notes.push(`Parent portal account created for ${guardianName} (${guardianEmail}).`);
     }
   } else if (guardianName) {
     notes.push('Guardian stored on the record; no portal account created (the form carried no email).');
   }
 
-  return { id: student.id, name, summary: `${name} · ${admissionNo} · roll ${rollNo}`, createdParentId };
+  return { id: student.id, name, summary: `${name} · ${admissionNo} · roll ${rollNo}`, createdParentId, createdStudentUserId };
 }
 
 async function commitTeacher(
@@ -189,6 +233,7 @@ async function commitTeacher(
   schoolId: string,
   fields: FieldRow[],
   notes: string[],
+  credentials: IssuedCredential[],
 ): Promise<{ id: string; name: string; summary: string }> {
   const name = get(fields, 'teacherName');
   if (!name) throw badRequest('Cannot commit: the name field is empty.');
@@ -218,17 +263,12 @@ async function commitTeacher(
 
   const department = get(fields, 'department') || get(fields, 'subject') || 'General';
 
-  const user = await tx.user.create({
-    data: {
-      schoolId,
-      email,
-      password: await unusablePassword(),
-      name,
-      role: 'TEACHER',
-      phone: get(fields, 'phone') || undefined,
-    },
-  });
-  notes.push('Login created with an unusable password — an admin must set one before first sign-in.');
+  const user = await provisionUser(
+    tx,
+    { schoolId, email, name, role: 'TEACHER', phone: get(fields, 'phone') || undefined },
+    credentials,
+    `Teacher · ${name}`,
+  );
 
   const teacher = await tx.teacher.create({
     data: {
@@ -273,16 +313,17 @@ export async function commitDocument(
 
   const rows: FieldRow[] = doc.fields.map((f) => ({ key: f.key, value: f.value, status: f.status }));
   const notes: string[] = [];
+  const credentials: IssuedCredential[] = [];
   const kind = template.commits;
 
   // Everything that changes state lives inside this one transaction: the new
-  // record (and any parent account), the document flip, the Trust event, the
+  // record (and its accounts), the document flip, the Trust event, the
   // activity entry. If any line fails, the school's data is exactly as it was.
   const { result, event } = await prisma.$transaction(async (tx) => {
     const created =
       kind === 'STUDENT'
-        ? await commitStudent(tx, schoolId, rows, notes)
-        : await commitTeacher(tx, schoolId, rows, notes);
+        ? await commitStudent(tx, schoolId, rows, notes, credentials)
+        : await commitTeacher(tx, schoolId, rows, notes, credentials);
 
     await tx.document.update({
       where: { id: doc.id },
@@ -303,6 +344,9 @@ export async function commitDocument(
           ...('createdParentId' in created && created.createdParentId
             ? { createdParentId: created.createdParentId }
             : {}),
+          ...('createdStudentUserId' in created && created.createdStudentUserId
+            ? { createdStudentUserId: created.createdStudentUserId }
+            : {}),
         },
         actorId: actor.id,
         actorName: actor.name,
@@ -316,7 +360,14 @@ export async function commitDocument(
         kind: 'COMMITTED',
         actorId: actor.id,
         actorName: actor.name,
-        detailString: JSON.stringify({ kind, refId: created.id, summary: created.summary }),
+        // Which logins were issued is audit-worthy; their passwords are not
+        // stored here or anywhere else.
+        detailString: JSON.stringify({
+          kind,
+          refId: created.id,
+          summary: created.summary,
+          accountsCreated: credentials.map((c) => c.email),
+        }),
       },
     });
 
@@ -329,6 +380,7 @@ export async function commitDocument(
     name: result.name,
     summary: result.summary,
     notes,
+    credentials,
     emitEvent: event.emit,
   };
 }

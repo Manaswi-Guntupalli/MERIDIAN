@@ -100,22 +100,27 @@ export function ConfidenceRing({ value, size = 44 }: { value: number; size?: num
   const c = 2 * Math.PI * r;
   const color = pct >= 90 ? T.mint : pct >= 75 ? T.brand : pct >= 60 ? T.amber : T.rose;
   return (
-    <svg width={size} height={size} className="-rotate-90">
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.well} strokeWidth={stroke} />
-      <motion.circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke={color}
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={c}
-        initial={{ strokeDashoffset: c }}
-        animate={{ strokeDashoffset: c - (pct / 100) * c }}
-        transition={{ duration: 0.9, ease: 'easeOut' }}
-      />
-      <text x="50%" y="50%" dy="0.32em" textAnchor="middle" className="rotate-90" style={{ transformOrigin: 'center' }} fill="#16211F" fontSize="11" fontWeight="700">
+      {/* The arc starts at 12 o'clock via an SVG-native rotate about the explicit
+          centre — CSS rotate classes on <svg>/<text> render inconsistently,
+          especially inside 3D-transformed ancestors. */}
+      <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          initial={{ strokeDashoffset: c }}
+          animate={{ strokeDashoffset: c - (pct / 100) * c }}
+          transition={{ duration: 0.9, ease: 'easeOut' }}
+        />
+      </g>
+      <text x="50%" y="50%" dy="0.32em" textAnchor="middle" fill="#16211F" fontSize="11" fontWeight="700">
         {pct}
       </text>
     </svg>

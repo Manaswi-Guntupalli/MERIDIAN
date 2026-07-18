@@ -20,8 +20,10 @@ export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('principal@meridian.school');
   const [password, setPassword] = useState('meridian123');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -30,7 +32,10 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(overrideEmail ?? email, 'meridian123');
+      // Demo tiles sign in with the seeded demo password; the form uses what
+      // was actually typed. (An earlier version hardcoded the demo password
+      // for BOTH paths — real credentials were silently ignored.)
+      await login(overrideEmail ?? email, overrideEmail ? 'meridian123' : password, rememberMe);
       navigate('/');
     } catch (err) {
       setError(apiError(err, 'Login failed'));
@@ -85,9 +90,20 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right — auth */}
-      <div className="flex items-center justify-center p-6 sm:p-12">
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
+      {/* Right — auth. A soft pastel wash, strongest at the right edge and
+          fading out before it reaches the form so inputs stay crisp. */}
+      <div
+        className="relative flex items-center justify-center overflow-hidden p-6 sm:p-12"
+        style={{
+          background: [
+            'radial-gradient(90% 70% at 100% 12%, rgba(147,197,253,0.40), transparent 62%)',
+            'radial-gradient(85% 75% at 100% 88%, rgba(249,168,212,0.42), transparent 64%)',
+            'radial-gradient(60% 55% at 88% 50%, rgba(196,181,253,0.28), transparent 70%)',
+            'linear-gradient(115deg, #ffffff 42%, #f3f6ff 74%, #fdf0f7 100%)',
+          ].join(', '),
+        }}
+      >
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="relative z-10 w-full max-w-sm">
           <div className="mb-8 lg:hidden">
             <div className="text-xl font-extrabold text-slate-900">MERIDIAN</div>
             <div className="text-xs text-slate-500">School Operating System</div>
@@ -104,7 +120,28 @@ export default function Login() {
               <label className="label mb-1.5 block">Password</label>
               <input className="input" value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
             </div>
-            {error && <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
+            <div className="flex items-center justify-between text-[0.76rem]">
+              <label className="flex cursor-pointer select-none items-center gap-2 text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-line accent-brand-600"
+                />
+                Remember me for 7 days
+              </label>
+              <button type="button" onClick={() => setShowRecovery((v) => !v)} className="font-medium text-brand-600 hover:underline">
+                Forgot password?
+              </button>
+            </div>
+            {showRecovery && (
+              <div className="rounded-lg border border-line bg-canvas px-3 py-2.5 text-[0.74rem] leading-relaxed text-slate-500">
+                Ask your school office to reset it from <b>Users &amp; Access</b> — you'll receive a temporary
+                password that works exactly once, then you choose your own. Locked accounts unlock the same way
+                (or automatically after 15 minutes).
+              </div>
+            )}
+            {error && <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-500">{error}</div>}
             <button className="btn-primary w-full" disabled={loading}>
               {loading ? <Spinner /> : <>Sign in <ArrowRight className="h-4 w-4" /></>}
             </button>

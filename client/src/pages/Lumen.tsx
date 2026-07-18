@@ -10,6 +10,7 @@ import { api, apiError } from '@/lib/api';
 import { connectSocket } from '@/lib/socket';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
+import { CredentialLine } from '@/pages/Users';
 import { Badge, EmptyState, LoadingScreen, Meter, Spinner, StatTile } from '@/components/ui';
 import { cn, confColor } from '@/lib/utils';
 import type { DocActivity, DocDetail, DocInsight, DocSummary, ExtractedField, LumenStats } from '@/types';
@@ -510,12 +511,17 @@ function DetailPanel({ docId, onClose }: { docId: string; onClose: () => void })
     onError: (e) => pushToast({ title: 'Could not save', body: apiError(e), severity: 'WARNING' }),
   });
 
+  const [issuedCreds, setIssuedCreds] = useState<{ summary: string; credentials: { label: string; email: string; tempPassword: string }[] } | null>(null);
+
   const commit = useMutation({
     mutationFn: async () => (await api.post(`/documents/${docId}/commit`)).data.committed,
-    onSuccess: (c: { kind: string; summary: string; notes: string[] }) => {
+    onSuccess: (c: { kind: string; summary: string; notes: string[]; credentials: { label: string; email: string; tempPassword: string }[] }) => {
       invalidate();
       qc.invalidateQueries({ queryKey: [c.kind === 'STUDENT' ? 'students' : 'staff'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
       pushToast({ title: `${c.kind === 'STUDENT' ? 'Student' : 'Staff'} record created ✓`, body: [c.summary, ...c.notes].join(' · '), severity: 'SUCCESS' });
+      // Fresh logins were minted inside the commit — show them exactly once.
+      if (c.credentials?.length) setIssuedCreds({ summary: c.summary, credentials: c.credentials });
     },
     onError: (e) => pushToast({ title: 'Commit blocked', body: apiError(e), severity: 'WARNING' }),
   });
@@ -561,6 +567,42 @@ function DetailPanel({ docId, onClose }: { docId: string; onClose: () => void })
 
   return (
     <div className="flex min-h-full flex-col xl:h-full xl:min-h-0">
+      {/* Logins minted by the commit — displayed exactly once, never stored. */}
+      <AnimatePresence>
+        {issuedCreds && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[95] grid place-items-center bg-slate-900/30 px-4 backdrop-blur-sm"
+            onClick={() => setIssuedCreds(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+              className="surface w-full max-w-md !rounded-2xl p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600"><UserPlus className="h-4.5 w-4.5" /></div>
+              <h2 className="mt-3 font-display text-lg font-semibold text-slate-900">Accounts created &amp; ready to use</h2>
+              <p className="mt-1 text-[0.8rem] leading-relaxed text-slate-500">
+                {issuedCreds.summary}. Hand these credentials over — they appear <b>only this once</b>, and each
+                person must set their own password at first sign-in.
+              </p>
+              <div className="mt-4 space-y-3">
+                {issuedCreds.credentials.map((c) => (
+                  <div key={c.email}>
+                    <div className="mb-1 text-[0.68rem] font-semibold uppercase tracking-wide text-slate-400">{c.label}</div>
+                    <div className="space-y-1.5">
+                      <CredentialLine label="Email" value={c.email} />
+                      <CredentialLine label="Temporary password" value={c.tempPassword} mono />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setIssuedCreds(null)} className="btn-primary mt-5 w-full">Done — credentials passed on</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* header — sticky so the status and actions never scroll away */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-line bg-surface/95 px-4 py-3 backdrop-blur-sm">
         <div className="min-w-0 flex-1">

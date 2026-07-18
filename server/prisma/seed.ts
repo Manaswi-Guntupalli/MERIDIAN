@@ -177,11 +177,24 @@ async function main() {
     for (let r = 1; r <= 22; r++) {
       rollGlobal++;
       const name = `${rand(FIRST, rollGlobal)} ${rand(LAST, rollGlobal + 3)}`;
+      const admissionNo = `ADM-${2026}-${String(rollGlobal).padStart(4, '0')}`;
+      // Every student gets a real portal login — same email scheme a Lumen
+      // commit uses, so paper-admitted and seeded students look identical.
+      const stuUser = await prisma.user.create({
+        data: {
+          schoolId,
+          email: `${admissionNo.toLowerCase()}@student.meridian.school`,
+          password: hash,
+          name,
+          role: 'STUDENT',
+        },
+      });
       const student = await prisma.student.create({
         data: {
           schoolId,
           classId: cls.id,
-          admissionNo: `ADM-${2026}-${String(rollGlobal).padStart(4, '0')}`,
+          userId: stuUser.id,
+          admissionNo,
           rollNo: r,
           name,
           gender: rollGlobal % 2 ? 'M' : 'F',
@@ -207,12 +220,21 @@ async function main() {
   }
   // Friendly parent + student login aliases.
   await prisma.user.update({ where: { email: 'parent1@meridian.school' }, data: { email: 'parent@meridian.school' } });
-  // Attach a student login to the first student.
-  const firstStudent = students[0];
-  const suser = await prisma.user.create({
-    data: { schoolId, email: 'student@meridian.school', password: hash, name: firstStudent.name, role: 'STUDENT' },
-  });
-  await prisma.student.update({ where: { id: firstStudent.id }, data: { userId: suser.id } });
+
+  // The demo parent gets a SECOND child — the sibling case is a core IAM
+  // behaviour (one parent account, several children in one dashboard) and the
+  // demo should show it without needing a Lumen commit first.
+  const demoParentUser = await prisma.user.findUnique({ where: { email: 'parent@meridian.school' }, include: { parent: true } });
+  if (demoParentUser?.parent && students.length > 1) {
+    await prisma.studentParent.upsert({
+      where: { studentId_parentId: { studentId: students[1].id, parentId: demoParentUser.parent.id } },
+      create: { studentId: students[1].id, parentId: demoParentUser.parent.id },
+      update: {},
+    });
+  }
+  // Friendly login alias for the first student (everyone already has a
+  // scheme-email login; the demo one just gets a memorable address too).
+  await prisma.user.update({ where: { id: students[0].userId! }, data: { email: 'student@meridian.school' } });
 
   // ── Fees — a well-run school: ~73% collected, with some dues to action ──
   for (let i = 0; i < students.length; i++) {

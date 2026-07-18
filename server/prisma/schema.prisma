@@ -56,6 +56,17 @@ model User {
   phone     String?
   avatarUrl String?
   active    Boolean  @default(true)
+  // ── Account security ──
+  // Temp-credential flow: accounts provisioned by Lumen/admins start with a
+  // temporary password and must set their own before anything else works.
+  mustChangePassword Boolean @default(false)
+  // Bumping this invalidates every outstanding JWT for the user — the
+  // mechanism behind "log out all devices", deactivation and password resets.
+  tokenVersion Int @default(0)
+  // Brute-force lockout state.
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  lastLoginIp  String?
   lastLogin DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

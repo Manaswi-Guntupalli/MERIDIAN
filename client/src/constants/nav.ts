@@ -18,6 +18,7 @@ import {
   Bell,
   SlidersHorizontal,
   Nfc,
+  UserCog,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -53,6 +54,7 @@ export const NAV: NavItem[] = [
   { to: '/face-recognition', label: 'Face Recognition', icon: ScanFace, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
 
   { to: '/trust', label: 'Time Machine', icon: History, roles: ADMIN, group: 'Trust Core' },
+  { to: '/users', label: 'Users & Access', icon: UserCog, roles: ADMIN, group: 'Trust Core' },
   { to: '/reports', label: 'AI Reports', icon: FileBarChart, roles: ADMIN, group: 'Trust Core' },
   { to: '/emergency', label: 'Emergency', icon: ShieldAlert, roles: STAFF, group: 'Trust Core' },
   { to: '/notifications', label: 'Notifications', icon: Bell, roles: ALL, group: 'Trust Core' },

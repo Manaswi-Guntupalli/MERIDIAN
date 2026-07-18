@@ -8,10 +8,29 @@ export interface User {
   avatarUrl?: string;
   phone?: string;
   schoolId: string;
+  mustChangePassword?: boolean;
+  /** Set when this session is a Super Admin viewing as someone else. */
+  impersonator?: { id: string; name: string };
   school?: { id: string; name: string; code: string };
   teacher?: unknown;
   student?: { id: string; name: string; class?: { name: string } };
   parent?: unknown;
+}
+
+export interface ManagedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  active: boolean;
+  phone?: string | null;
+  lastLogin?: string | null;
+  lastLoginIp?: string | null;
+  locked: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  detail: string | null;
+  manageable: boolean;
 }
 
 export interface DashboardStats {
