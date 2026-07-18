@@ -42,6 +42,9 @@ model School {
   predictions   Prediction[]
   emergencies   EmergencyIncident[]
   settings      Setting[]
+  rfidCards         RFIDCard[]
+  rfidReaders       RFIDReader[]
+  attendanceEvents  AttendanceEvent[]
 }
 
 // ─────────────────────────────  AUTH  ──────────────────────────────
@@ -136,15 +139,17 @@ model Student {
   emergencyContact String?
   classId     String?
   class       Class?   @relation(fields: [classId], references: [id])
-  rfidTag     String?  @unique
+  active      Boolean  @default(true)    // false = withdrawn/transferred — Presence rejects scans
   faceEnrolled Boolean @default(false)   // has enrolled face embeddings
   faceCount    Int     @default(0)       // number of stored embeddings
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  attendance Attendance[]
-  fees       Fee[]
-  parents    StudentParent[]
+  attendance       Attendance[]
+  fees             Fee[]
+  parents          StudentParent[]
+  rfidCards        RFIDCard[]
+  attendanceEvents AttendanceEvent[]
 }
 
 model Parent {
@@ -256,6 +261,104 @@ model Attendance {
 
   @@unique([studentId, date])
   @@index([schoolId, date])
+}
+
+// ─────────────────────────  PRESENCE · RFID  ────────────────────────
+// status ∈ ACTIVE | DISABLED | LOST | BROKEN | REPLACED
+// A student may have many cards over their lifetime (lost/replaced), but the
+// card service enforces at most one ACTIVE card per student at a time.
+model RFIDCard {
+  id        String    @id @default(cuid())
+  schoolId  String
+  school    School    @relation(fields: [schoolId], references: [id])
+  uid       String                                 // physical tag UID
+  studentId String
+  student   Student   @relation(fields: [studentId], references: [id])
+  status    String    @default("ACTIVE")
+  issuedDate    DateTime  @default(now())
+  deactivatedAt DateTime?
+  // Points at the NEW card that replaced this one (old.replacedByCard -> new).
+  // Unique so the back-relation is a single card, not a list — a card can
+  // only ever be "the replacement" for one predecessor.
+  replacedByCardId String?   @unique
+  replacedByCard   RFIDCard? @relation("CardReplacement", fields: [replacedByCardId], references: [id])
+  replacedFromCard RFIDCard? @relation("CardReplacement")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  events AttendanceEvent[]
+
+  @@unique([schoolId, uid])
+  @@index([studentId])
+}
+
+// online is a materialized flag kept in sync by heartbeats + a periodic
+// sweep (services/presence/readers.ts) rather than computed on every read.
+// direction ∈ ENTRY | EXIT | BOTH — a gate can be wired as one-way.
+model RFIDReader {
+  id              String    @id @default(cuid())
+  schoolId        String
+  school          School    @relation(fields: [schoolId], references: [id])
+  name            String
+  location        String
+  building        String?
+  online          Boolean   @default(false)
+  firmwareVersion String?
+  lastHeartbeat   DateTime?
+  // bcrypt hash of the device secret used by authenticateReader — the
+  // plaintext key is shown to the admin exactly once, at creation/rotation.
+  apiKeyHash      String
+  direction       String    @default("BOTH")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  heartbeats ReaderHeartbeat[]
+  events     AttendanceEvent[]
+
+  @@index([schoolId])
+}
+
+model ReaderHeartbeat {
+  id              String     @id @default(cuid())
+  readerId        String
+  reader          RFIDReader @relation(fields: [readerId], references: [id])
+  timestamp       DateTime   @default(now())
+  signal          Float?
+  firmwareVersion String?
+
+  @@index([readerId, timestamp])
+}
+
+// The append-only raw scan log — every source (RFID/QR/MANUAL/CV) writes
+// exactly this shape via presence/engine.ts. This is what Presence's own
+// live feed, history and analytics read; the `Attendance` table above stays
+// the materialized daily view every other engine already reads, untouched.
+// source ∈ RFID | QR | MANUAL | CV
+// direction ∈ ENTRY | EXIT | REENTRY | UNKNOWN
+// verificationStatus ∈ VERIFIED | DUPLICATE | UNKNOWN | LATE | REJECTED
+model AttendanceEvent {
+  id        String      @id @default(cuid())
+  schoolId  String
+  school    School      @relation(fields: [schoolId], references: [id])
+  studentId String?
+  student   Student?    @relation(fields: [studentId], references: [id])
+  cardId    String?
+  card      RFIDCard?   @relation(fields: [cardId], references: [id])
+  readerId  String?
+  reader    RFIDReader? @relation(fields: [readerId], references: [id])
+  source    String
+  timestamp DateTime    @default(now())
+  direction String      @default("UNKNOWN")
+  verificationStatus String @default("VERIFIED")
+  late        Boolean @default(false)
+  lateMinutes Int?
+  createdBy   String?                                // userId, when staff-originated
+  notes       String?
+
+  @@index([schoolId, timestamp])
+  @@index([studentId, timestamp])
+  @@index([readerId, timestamp])
+  @@index([cardId])
 }
 
 // ──────────────────────────  LUMEN (DOCUMENTS)  ─────────────────────

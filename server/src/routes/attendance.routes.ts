@@ -5,8 +5,8 @@ import { asyncHandler, badRequest, notFound } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { validateBody } from '../utils/validate.js';
 import { recordEvent } from '../services/eventStore.js';
-import { logAI } from '../services/trustLedger.js';
-import { emitToSchool } from '../lib/socket.js';
+import { processScan } from '../services/presence/engine.js';
+import { assertOwnClass } from '../services/presence/authz.js';
 import { ATTENDANCE_STATUS, STAFF } from '../utils/constants.js';
 
 const router = Router();
@@ -24,6 +24,7 @@ router.get(
     const students = await prisma.student.findMany({
       where: { schoolId, classId: req.params.classId },
       orderBy: { rollNo: 'asc' },
+      include: { rfidCards: { where: { status: 'ACTIVE' }, take: 1 } },
     });
     const records = await prisma.attendance.findMany({
       where: { schoolId, classId: req.params.classId, date },
@@ -35,7 +36,7 @@ router.get(
         studentId: s.id,
         name: s.name,
         rollNo: s.rollNo,
-        rfidTag: s.rfidTag,
+        cardUid: s.rfidCards[0]?.uid ?? null,
         status: map.get(s.id)?.status ?? 'UNMARKED',
         source: map.get(s.id)?.source ?? null,
         attendanceId: map.get(s.id)?.id ?? null,
@@ -49,10 +50,15 @@ const markSchema = z.object({
   classId: z.string(),
   status: z.enum(ATTENDANCE_STATUS as unknown as [string, ...string[]]),
   date: z.string().optional(),
-  source: z.enum(['MANUAL', 'RFID', 'CV']).optional(),
-  confidence: z.number().optional(),
 });
 
+// This is a thin wrapper over Presence: a live PRESENT/LATE mark for today
+// is exactly a manual attendance EVENT and goes through the same
+// engine.processScan() every other source uses. ABSENT/LEAVE — and any
+// backdated correction — aren't a physical detection of anyone, so they
+// stay a direct administrative write to the same Attendance table (no
+// AttendanceEvent to speak of; Presence is still the only thing that ever
+// touches Attendance).
 router.post(
   '/mark',
   validateBody(markSchema),
@@ -61,29 +67,23 @@ router.post(
     const body = req.body as z.infer<typeof markSchema>;
     const date = body.date || todayStr();
 
-    // Ownership: never trust client-supplied IDs — both the student and the
-    // class must belong to the caller's school, and the student must be in
-    // that class. Prevents cross-tenant/cross-class attendance writes.
-    const student = await prisma.student.findFirst({ where: { id: body.studentId, schoolId } });
+    const student = await prisma.student.findFirst({ where: { id: body.studentId, schoolId }, include: { class: true } });
     if (!student) throw notFound('Student not found in your school');
-    const cls = await prisma.class.findFirst({ where: { id: body.classId, schoolId } });
-    if (!cls) throw notFound('Class not found in your school');
-    if (student.classId !== cls.id) throw badRequest('Student is not enrolled in that class');
+    if (student.classId !== body.classId) throw badRequest('Student is not enrolled in that class');
+    await assertOwnClass(req.user!, student.class?.classTeacherId);
+
+    const isLiveEntry = (body.status === 'PRESENT' || body.status === 'LATE') && date === todayStr();
+    if (isLiveEntry) {
+      await processScan({ schoolId, source: 'MANUAL', studentId: body.studentId, direction: 'ENTRY', createdBy: req.user!.sub });
+      const record = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: body.studentId, date } } });
+      return res.json({ record });
+    }
 
     const existing = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: body.studentId, date } } });
     const record = await prisma.attendance.upsert({
       where: { studentId_date: { studentId: body.studentId, date } },
-      create: {
-        schoolId,
-        studentId: body.studentId,
-        classId: body.classId,
-        date,
-        status: body.status,
-        source: body.source ?? 'MANUAL',
-        confidence: body.confidence,
-        markedById: req.user!.sub,
-      },
-      update: { status: body.status, source: body.source ?? 'MANUAL', confidence: body.confidence },
+      create: { schoolId, studentId: body.studentId, classId: body.classId, date, status: body.status, source: 'MANUAL', markedById: req.user!.sub },
+      update: { status: body.status, source: 'MANUAL' },
     });
 
     await recordEvent({
@@ -91,29 +91,11 @@ router.post(
       type: 'ATTENDANCE_MARKED',
       aggregate: 'Attendance',
       aggregateId: record.id,
-      payload: {
-        attendanceId: record.id,
-        studentId: body.studentId,
-        status: body.status,
-        previousStatus: existing?.status ?? null,
-        previousSource: existing?.source ?? null,
-        source: body.source ?? 'MANUAL',
-      },
+      payload: { attendanceId: record.id, studentId: body.studentId, status: body.status, previousStatus: existing?.status ?? null, previousSource: existing?.source ?? null, source: 'MANUAL' },
       actorId: req.user!.sub,
       actorName: req.user!.name,
     });
 
-    if (body.source === 'CV') {
-      await logAI({
-        schoolId,
-        engine: 'PRESENCE',
-        action: 'Face-embedding attendance match',
-        reason: 'On-device MobileFaceNet embedding matched enrolled student; no raw image stored',
-        confidence: body.confidence ?? 0.95,
-        input: { studentId: body.studentId },
-        output: { status: body.status },
-      });
-    }
     res.json({ record });
   }),
 );
@@ -131,86 +113,36 @@ router.post(
     const schoolId = req.user!.schoolId;
     const { classId, status } = req.body as z.infer<typeof bulkSchema>;
     const date = (req.body as any).date || todayStr();
-    // Ownership: the class must belong to the caller's school.
     const owned = await prisma.class.findFirst({ where: { id: classId, schoolId } });
     if (!owned) throw notFound('Class not found in your school');
-    const students = await prisma.student.findMany({ where: { schoolId, classId } });
-    for (const s of students) {
-      await prisma.attendance.upsert({
-        where: { studentId_date: { studentId: s.id, date } },
-        create: { schoolId, studentId: s.id, classId, date, status, source: 'MANUAL', markedById: req.user!.sub },
-        update: { status, source: 'MANUAL' },
-      });
+    await assertOwnClass(req.user!, owned.classTeacherId);
+
+    const students = await prisma.student.findMany({ where: { schoolId, classId, active: true } });
+    const isLiveEntry = (status === 'PRESENT' || status === 'LATE') && date === todayStr();
+    if (isLiveEntry) {
+      for (const s of students) {
+        await processScan({ schoolId, source: 'MANUAL', studentId: s.id, direction: 'ENTRY', createdBy: req.user!.sub });
+      }
+    } else {
+      for (const s of students) {
+        await prisma.attendance.upsert({
+          where: { studentId_date: { studentId: s.id, date } },
+          create: { schoolId, studentId: s.id, classId, date, status, source: 'MANUAL', markedById: req.user!.sub },
+          update: { status, source: 'MANUAL' },
+        });
+      }
     }
-    const cls = await prisma.class.findUnique({ where: { id: classId } });
+
     await recordEvent({
       schoolId,
       type: 'ATTENDANCE_BULK',
       aggregate: 'Class',
       aggregateId: classId,
-      payload: { classId, status, count: students.length, className: cls?.name },
+      payload: { classId, status, count: students.length, className: owned.name },
       actorId: req.user!.sub,
       actorName: req.user!.name,
     });
-    res.json({ marked: students.length, className: cls?.name, status });
-  }),
-);
-
-// Presence kiosk — resolve an RFID tap or CV embedding to a student and mark present.
-const kioskSchema = z.object({
-  rfidTag: z.string().optional(),
-  studentId: z.string().optional(),
-  mode: z.enum(['RFID', 'CV']),
-  confidence: z.number().optional(),
-});
-router.post(
-  '/kiosk',
-  validateBody(kioskSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const body = req.body as z.infer<typeof kioskSchema>;
-    const student = body.rfidTag
-      ? await prisma.student.findFirst({ where: { schoolId, rfidTag: body.rfidTag } })
-      : await prisma.student.findFirst({ where: { schoolId, id: body.studentId } });
-    if (!student || !student.classId) throw badRequest('No enrolled student for that tap');
-
-    const date = todayStr();
-    const record = await prisma.attendance.upsert({
-      where: { studentId_date: { studentId: student.id, date } },
-      create: {
-        schoolId,
-        studentId: student.id,
-        classId: student.classId,
-        date,
-        status: 'PRESENT',
-        source: body.mode,
-        confidence: body.confidence,
-      },
-      update: { status: 'PRESENT', source: body.mode, confidence: body.confidence },
-    });
-
-    await recordEvent({
-      schoolId,
-      type: 'ATTENDANCE_MARKED',
-      aggregate: 'Attendance',
-      aggregateId: record.id,
-      payload: { attendanceId: record.id, studentId: student.id, status: 'PRESENT', source: body.mode },
-      actorName: `Presence kiosk (${body.mode})`,
-    });
-    await logAI({
-      schoolId,
-      engine: 'PRESENCE',
-      action: `${body.mode} attendance capture`,
-      reason:
-        body.mode === 'CV'
-          ? 'Edge face embedding matched — raw frame discarded in-memory, zero biometric image stored'
-          : 'RFID tag resolved to enrolled student',
-      confidence: body.confidence ?? (body.mode === 'CV' ? 0.94 : 1),
-      output: { student: student.name, status: 'PRESENT' },
-    });
-
-    emitToSchool(schoolId, 'presence:tap', { student: student.name, rollNo: student.rollNo, mode: body.mode });
-    res.json({ student: { id: student.id, name: student.name, rollNo: student.rollNo }, record });
+    res.json({ marked: students.length, className: owned.name, status });
   }),
 );
 

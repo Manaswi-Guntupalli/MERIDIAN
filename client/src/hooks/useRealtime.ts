@@ -28,11 +28,17 @@ export function useRealtime() {
       'documents', 'lumen-stats',
     ];
     const onEvent = () => REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-    const onPresence = (p: { student: string; mode: string }) => {
-      pushToast({ title: 'Presence ✓', body: `${p.student} marked present (${p.mode})`, severity: 'SUCCESS' });
-      qc.invalidateQueries({ queryKey: ['attendance'] });
-      qc.invalidateQueries({ queryKey: ['twin'] });
+    const PRESENCE_REACTIVE = ['presence-events', 'presence-analytics', 'attendance', 'twin', 'presence-readers'];
+    const onPresenceEvent = (e: { status: string; student?: { name: string }; direction: string; reason?: string }) => {
+      if (e.status === 'VERIFIED' || e.status === 'LATE') {
+        const verb = e.direction === 'EXIT' ? 'exited' : 'entered';
+        pushToast({ title: e.status === 'LATE' ? 'Late arrival' : 'Presence ✓', body: `${e.student?.name ?? 'Student'} ${verb}${e.status === 'LATE' ? ' (late)' : ''}`, severity: e.status === 'LATE' ? 'WARNING' : 'SUCCESS' });
+      } else if (e.status === 'UNKNOWN') {
+        pushToast({ title: 'Unknown card scanned', body: e.reason ?? 'Needs review', severity: 'WARNING' });
+      }
+      PRESENCE_REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     };
+    const onReaderStatus = () => qc.invalidateQueries({ queryKey: ['presence-readers'] });
     const onEmergency = (e: { kind: string }) => {
       pushToast({ title: `🚨 ${e.kind} EMERGENCY`, body: 'Emergency protocol activated', severity: 'CRITICAL' });
       qc.invalidateQueries({ queryKey: ['emergency'] });
@@ -55,7 +61,8 @@ export function useRealtime() {
 
     socket.on('notification:new', onNotification);
     socket.on('event:new', onEvent);
-    socket.on('presence:tap', onPresence);
+    socket.on('presence:event', onPresenceEvent);
+    socket.on('presence:reader-status', onReaderStatus);
     socket.on('emergency:trigger', onEmergency);
     socket.on('emergency:resolve', onEmergencyResolve);
     socket.on('timetable:published', onTimetablePublished);
@@ -64,7 +71,8 @@ export function useRealtime() {
     return () => {
       socket.off('notification:new', onNotification);
       socket.off('event:new', onEvent);
-      socket.off('presence:tap', onPresence);
+      socket.off('presence:event', onPresenceEvent);
+      socket.off('presence:reader-status', onReaderStatus);
       socket.off('emergency:trigger', onEmergency);
       socket.off('emergency:resolve', onEmergencyResolve);
       socket.off('timetable:published', onTimetablePublished);

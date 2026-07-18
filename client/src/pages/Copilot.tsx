@@ -47,7 +47,20 @@ export default function Copilot() {
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <PageHeader overline="Meridian Copilot" title="Ask anything, grounded in live data" subtitle="Answers come from the event store — never hallucinated. Actions only run on confirm, and land in the Trust Ledger." />
 
-      <Card className="flex flex-1 flex-col overflow-hidden !p-0">
+      {/* Pastel wash scoped to the chat window only — same family as the
+          login page's gradient, spread so every corner carries colour. */}
+      <Card
+        className="flex flex-1 flex-col overflow-hidden !p-0"
+        style={{
+          background: [
+            'radial-gradient(80% 60% at 8% 0%, rgba(147,197,253,0.42), transparent 60%)',
+            'radial-gradient(75% 65% at 100% 12%, rgba(196,181,253,0.38), transparent 62%)',
+            'radial-gradient(90% 70% at 92% 100%, rgba(249,168,212,0.42), transparent 64%)',
+            'radial-gradient(70% 55% at 0% 88%, rgba(153,246,228,0.34), transparent 60%)',
+            'linear-gradient(115deg, #f5f8ff 0%, #fdf2f8 55%, #f3f6ff 100%)',
+          ].join(', '),
+        }}
+      >
         <div className="no-scrollbar flex-1 space-y-4 overflow-y-auto p-5">
           {messages.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-5 text-center">
@@ -58,7 +71,7 @@ export default function Copilot() {
               </div>
               <div className="flex max-w-lg flex-wrap justify-center gap-2">
                 {suggestions.data?.map((s) => (
-                  <button key={s} onClick={() => send(s)} className="chip surface-hover hover:!text-slate-900"><Sparkles className="h-3 w-3 text-brand-400" /> {s}</button>
+                  <button key={s} onClick={() => send(s)} className="chip surface-hover !border-white/70 !bg-white/70 backdrop-blur-sm hover:!text-slate-900"><Sparkles className="h-3 w-3 text-brand-400" /> {s}</button>
                 ))}
               </div>
             </div>
@@ -70,7 +83,7 @@ export default function Copilot() {
                 <div className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', m.role === 'user' ? 'bg-ink-700 text-slate-600' : 'bg-brand-600 text-white')}>
                   {m.role === 'user' ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
-                <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm', m.role === 'user' ? 'bg-brand-500/15 text-slate-900' : 'surface text-slate-700')}>
+                <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm backdrop-blur-sm', m.role === 'user' ? 'border border-brand-500/20 bg-brand-500/15 text-slate-900' : 'border border-white/70 bg-white/75 text-slate-700 shadow-sm')}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
                   {m.meta && (
                     <div className="mt-2.5 flex items-center gap-2 border-t border-line pt-2 text-[0.7rem]">
@@ -87,13 +100,13 @@ export default function Copilot() {
           {ask.isPending && (
             <div className="flex gap-3">
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white"><Bot className="h-4 w-4" /></div>
-              <div className="surface flex items-center gap-2 rounded-2xl px-4 py-3 text-sm text-slate-500"><Spinner /> Thinking…</div>
+              <div className="flex items-center gap-2 rounded-2xl border border-white/70 bg-white/75 px-4 py-3 text-sm text-slate-500 shadow-sm backdrop-blur-sm"><Spinner /> Thinking…</div>
             </div>
           )}
           <div ref={endRef} />
         </div>
 
-        <div className="border-t border-line p-3">
+        <div className="border-t border-white/70 bg-white/55 p-3 backdrop-blur-md">
           <div className="flex items-center gap-2">
             {voice.supported && (
               <button onClick={voice.listening ? voice.stop : voice.start} className={cn('btn-ghost !px-3', voice.listening && 'animate-pulseGlow !border-rose-400/40 !text-rose-400')}>

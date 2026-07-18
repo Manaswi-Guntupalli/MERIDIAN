@@ -90,7 +90,7 @@ export interface StudentRow {
   admissionNo: string;
   bloodGroup?: string;
   gender?: string;
-  rfidTag?: string;
+  active?: boolean;
   class?: { id: string; name: string };
 }
 
@@ -123,7 +123,7 @@ export interface RosterEntry {
   studentId: string;
   name: string;
   rollNo: number;
-  rfidTag?: string;
+  cardUid?: string | null;
   status: string;
   source?: string | null;
   attendanceId?: string | null;
@@ -352,4 +352,82 @@ export interface CopilotResult {
   data?: unknown;
   source: 'openai' | 'rules';
   confidence: number;
+}
+
+// ─────────────────────────  PRESENCE  ────────────────────────
+export type ReaderDirection = 'ENTRY' | 'EXIT' | 'BOTH';
+export type CardStatus = 'ACTIVE' | 'DISABLED' | 'LOST' | 'BROKEN' | 'REPLACED';
+export type EventSource = 'RFID' | 'QR' | 'MANUAL' | 'CV';
+export type EventDirection = 'ENTRY' | 'EXIT' | 'REENTRY' | 'UNKNOWN';
+export type VerificationStatus = 'VERIFIED' | 'DUPLICATE' | 'UNKNOWN' | 'LATE' | 'REJECTED';
+
+export interface RFIDReaderRow {
+  id: string;
+  name: string;
+  location: string;
+  building: string | null;
+  online: boolean;
+  firmwareVersion: string | null;
+  lastHeartbeat: string | null;
+  direction: ReaderDirection;
+  createdAt: string;
+}
+
+export interface RFIDCardRow {
+  id: string;
+  uid: string;
+  studentId: string;
+  status: CardStatus;
+  issuedDate: string;
+  deactivatedAt: string | null;
+  replacedByCardId: string | null;
+  createdAt: string;
+  student?: { id: string; name: string; rollNo: number; classId: string | null };
+}
+
+export interface AttendanceEventRow {
+  id: string;
+  studentId: string | null;
+  cardId: string | null;
+  readerId: string | null;
+  source: EventSource;
+  timestamp: string;
+  direction: EventDirection;
+  verificationStatus: VerificationStatus;
+  late: boolean;
+  lateMinutes: number | null;
+  notes: string | null;
+  student?: { id: string; name: string; rollNo: number; class?: { name: string } } | null;
+  reader?: { id: string; name: string; location: string } | null;
+  card?: { uid: string } | null;
+}
+
+export interface ScanResult {
+  status: VerificationStatus;
+  eventId: string;
+  reason?: string;
+  student?: { id: string; name: string; rollNo: number };
+  direction: EventDirection;
+  late: boolean;
+  lateMinutes: number | null;
+  timestamp: string;
+}
+
+export interface PresenceSettings {
+  schoolStartTime: string;
+  lateGraceMinutes: number;
+  duplicateWindowSeconds: number;
+  heartbeatOfflineThresholdSeconds: number;
+}
+
+export interface PresenceTodaySummary {
+  date: string;
+  totalStudents: number;
+  present: number;
+  late: number;
+  absent: number;
+  unmarked: number;
+  readersOnline: number;
+  readersOffline: number;
+  unknownCards: number;
 }

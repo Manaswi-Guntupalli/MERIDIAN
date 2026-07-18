@@ -133,6 +133,8 @@ Current installed highlights:
 - Communication: Notification, EmergencyIncident.
 - Configuration: Setting.
 - Biometric attendance: FaceEmbedding, FaceEvent.
+- Presence: RFIDCard, RFIDReader, ReaderHeartbeat, AttendanceEvent
+  (append-only raw scan log — Attendance stays the materialized daily view).
 
 ### Realtime Layer
 
@@ -141,7 +143,7 @@ Current installed highlights:
   - New immutable events
   - AI log updates
   - Notifications
-  - Presence/RFID/CV attendance taps
+  - Presence scan outcomes and reader online/offline status
   - Emergency trigger/resolve events
   - Unknown face events
 - React Query cache invalidation keeps dashboards, attendance, twin, events,
@@ -188,10 +190,24 @@ Current installed highlights:
 
 #### Presence
 
-- Current role: automated attendance using RFID simulation and face recognition.
-- Supports manual attendance, bulk attendance, RFID-style kiosk taps, face
-  enrollment, live face kiosk recognition, liveness checks, parent
-  notifications, and unknown/spoof event logs.
+- Current role: event-driven attendance platform. RFID, QR, manual and face
+  recognition all normalize to one `ScanInput` and flow through a single
+  `processScan()` pipeline (`server/src/services/presence/engine.ts`) —
+  attendance is the event that drives the rest of the ERP, not a feature
+  bolted onto it.
+- Full RFID card lifecycle (issue/replace/disable/lost/broken/reissue,
+  duplicate-UID detection) and reader fleet management (heartbeat, online/
+  offline sweep, per-reader device key).
+- Configurable duplicate-scan window, late-arrival policy, and entry/exit/
+  re-entry direction inference, all evaluated inside one transaction per
+  scan.
+- Unknown cards raise a reviewable security notification instead of ever
+  creating attendance.
+- A production-shaped simulator drives the same pipeline a real reader
+  would — swapping in hardware means pointing a small gateway at the same
+  `/api/presence/scan` endpoint with a device key.
+- Face enrollment, live kiosk recognition and liveness checks are unchanged;
+  the kiosk's attendance write now goes through the same shared engine.
 
 #### Copilot
 

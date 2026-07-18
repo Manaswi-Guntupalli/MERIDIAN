@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Phone, Droplet, IdCard, CalendarCheck, ScanFace, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Phone, Droplet, IdCard, CalendarCheck, ScanFace, CheckCircle2, Nfc } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import PageHeader from '@/components/PageHeader';
@@ -44,7 +44,7 @@ export default function StudentDetail() {
           <div className="mt-5 space-y-3 text-sm">
             <Row icon={<IdCard className="h-4 w-4" />} label="Admission" value={s.admissionNo} />
             <Row icon={<Droplet className="h-4 w-4" />} label="Blood group" value={s.bloodGroup ?? '—'} />
-            <Row icon={<CalendarCheck className="h-4 w-4" />} label="RFID tag" value={s.rfidTag ?? '—'} />
+            <Row icon={<CalendarCheck className="h-4 w-4" />} label="Admitted" value={new Date(s.createdAt).toLocaleDateString('en-IN')} />
             {s.parents?.map((p: any) => (
               <Row key={p.id} icon={<Phone className="h-4 w-4" />} label={p.parent.relation} value={p.parent.user.name} />
             ))}
@@ -62,6 +62,17 @@ export default function StudentDetail() {
                 <ScanFace className="h-3.5 w-3.5" /> {s.faceEnrolled ? 'Re-enroll face' : 'Enroll face'}
               </button>
             )}
+          </div>
+
+          {/* RFID card */}
+          <div className="mt-3 rounded-xl border border-line bg-ink-800/60 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Nfc className="h-4 w-4 text-brand-400" /> RFID card</div>
+              {s.rfidCards?.[0] ? <Badge severity="SUCCESS">{s.rfidCards[0].uid}</Badge> : <Badge>No active card</Badge>}
+            </div>
+            <Link to={`/presence/history?studentId=${s.id}`} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline">
+              View Presence history →
+            </Link>
           </div>
         </Card>
 

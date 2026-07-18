@@ -128,11 +128,8 @@ export default function CommandPalette() {
         e.preventDefault();
         setPalette(!paletteOpen);
       }
-      // ⌘/Ctrl+B toggles the sidebar — the familiar editor/ChatGPT shortcut.
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        useUI.getState().toggleRail();
-      }
+      // ⌘/Ctrl+B (sidebar toggle) is handled in Sidebar.tsx — a second
+      // listener here would toggle twice per keypress and cancel itself out.
       if (e.key === 'Escape') setPalette(false);
     };
     window.addEventListener('keydown', handler);

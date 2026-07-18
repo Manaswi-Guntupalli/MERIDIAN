@@ -24,6 +24,11 @@ async function main() {
   console.log('🌱 Seeding Meridian…');
   // Clean slate
   await prisma.$transaction([
+    prisma.readerHeartbeat.deleteMany(),
+    prisma.attendanceEvent.deleteMany(),
+    prisma.rFIDCard.updateMany({ data: { replacedByCardId: null } }), // clear self-refs before bulk delete
+    prisma.rFIDCard.deleteMany(),
+    prisma.rFIDReader.deleteMany(),
     prisma.faceEmbedding.deleteMany(),
     prisma.faceEvent.deleteMany(),
     prisma.payment.deleteMany(),
@@ -237,6 +242,35 @@ async function main() {
     });
   }
 
+  // ── Presence: RFID readers (gates) — a real device would authenticate
+  //    with the plaintext key; the seed just hashes a memorable demo key
+  //    so the Simulator/hardware-adapter story is testable out of the box. ──
+  const readerDefs = [
+    { name: 'Main Gate Reader', location: 'Main Gate', building: 'Admin & Hall', direction: 'BOTH', key: 'demo-reader-key-main-gate' },
+    { name: 'Block A Reader', location: 'Block A Entrance', building: 'Block A', direction: 'ENTRY', key: 'demo-reader-key-block-a' },
+    { name: 'Sports Gate Reader', location: 'Sports Ground Exit', building: 'Admin & Hall', direction: 'EXIT', key: 'demo-reader-key-sports-gate' },
+  ];
+  const readers = [];
+  for (const r of readerDefs) {
+    const apiKeyHash = await bcrypt.hash(r.key, 10);
+    const reader = await prisma.rFIDReader.create({
+      data: { schoolId, name: r.name, location: r.location, building: r.building, direction: r.direction, apiKeyHash, online: true, lastHeartbeat: new Date(), firmwareVersion: '1.4.2' },
+    });
+    await prisma.readerHeartbeat.create({ data: { readerId: reader.id, signal: 0.9, firmwareVersion: '1.4.2' } });
+    readers.push(reader);
+  }
+
+  // ── Presence: default policy settings (explicit rows so the Settings
+  //    page shows real persisted values, not just in-code defaults) ──
+  await prisma.setting.createMany({
+    data: [
+      { schoolId, key: 'presence.schoolStartTime', valueString: '08:00' },
+      { schoolId, key: 'presence.lateGraceMinutes', valueString: '5' },
+      { schoolId, key: 'presence.duplicateWindowSeconds', valueString: '120' },
+      { schoolId, key: 'presence.heartbeatOfflineThresholdSeconds', valueString: '90' },
+    ],
+  });
+
   // ── Students + Parents + RFID ──
   let rollGlobal = 0;
   const students = [];
@@ -266,8 +300,10 @@ async function main() {
           name,
           gender: rollGlobal % 2 ? 'M' : 'F',
           bloodGroup: rand(BLOOD, rollGlobal),
-          rfidTag: `RFID-${String(rollGlobal).padStart(5, '0')}`,
         },
+      });
+      await prisma.rFIDCard.create({
+        data: { schoolId, studentId: student.id, uid: `RFID-${String(rollGlobal).padStart(5, '0')}`, status: 'ACTIVE' },
       });
       students.push(student);
 
@@ -333,18 +369,39 @@ async function main() {
     if (dow === 0 || dow === 6) continue; // skip weekends
     // Base rate ~95%, dip in the last 3 days (simulating rainfall).
     const base = d <= 2 ? 0.84 : 0.95;
+    // Only the last 5 school days get a matching AttendanceEvent — enough to
+    // populate Presence's live feed / late / peak-time / reader-usage
+    // analytics on first load without a slow full 12-day backfill.
+    const backfillEvents = d <= 5;
     for (const s of students) {
       const present = Math.random() < base;
+      const status = present ? 'PRESENT' : Math.random() < 0.4 ? 'LATE' : 'ABSENT';
+      const source = Math.random() < 0.5 ? 'RFID' : 'MANUAL';
       await prisma.attendance.create({
-        data: {
-          schoolId,
-          studentId: s.id,
-          classId: s.classId!,
-          date,
-          status: present ? 'PRESENT' : Math.random() < 0.4 ? 'LATE' : 'ABSENT',
-          source: Math.random() < 0.5 ? 'RFID' : 'MANUAL',
-        },
+        data: { schoolId, studentId: s.id, classId: s.classId!, date, status, source },
       });
+
+      if (backfillEvents && status !== 'ABSENT') {
+        const late = status === 'LATE';
+        const minute = late ? 15 + Math.floor(Math.random() * 30) : Math.floor(Math.random() * 20);
+        const timestamp = new Date(`${date}T07:5${late ? '9' : '0'}:00`);
+        timestamp.setMinutes(timestamp.getMinutes() + minute);
+        const entryReaders = readers.filter((r) => r.direction !== 'EXIT');
+        const reader = source === 'RFID' ? rand(entryReaders, s.rollNo + minute) : null;
+        await prisma.attendanceEvent.create({
+          data: {
+            schoolId,
+            studentId: s.id,
+            readerId: reader?.id,
+            source,
+            timestamp,
+            direction: 'ENTRY',
+            verificationStatus: late ? 'LATE' : 'VERIFIED',
+            late,
+            lateMinutes: late ? minute - 5 : null,
+          },
+        });
+      }
     }
   }
 
@@ -422,6 +479,7 @@ async function main() {
   console.log('     student@meridian.school     (STUDENT)');
   console.log('     parent@meridian.school      (PARENT)');
   console.log(`   Students: ${students.length}, Teachers: ${teachers.length}, Classes: ${classes.length}`);
+  console.log(`   Presence: ${readers.length} readers, ${students.length} RFID cards issued`);
 }
 
 main()

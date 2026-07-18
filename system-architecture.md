@@ -131,6 +131,8 @@ routes grouped by product domain:
 - `/trust`
 - `/reports`
 - `/face`
+- `/presence` (readers, cards, scan ingest, live feed, history, analytics,
+  settings, simulator)
 
 Core backend responsibilities:
 
@@ -323,27 +325,62 @@ Winning upgrade:
 - Add confidence calibration and drift monitoring.
 - Create a "pre-solve tomorrow" loop with Kairos.
 
-### Presence: Privacy-First Attendance
+### Presence: Event-Driven Attendance Platform
 
 Purpose:
 
-- Automate attendance through RFID and on-device face recognition.
+- Automate attendance from any input source — RFID, QR, manual, on-device
+  face recognition — through one backend pipeline, so attendance is the
+  *event* that drives the rest of the ERP, not a feature bolted onto it.
 
 Current architecture:
 
-- RFID simulation resolves a student and marks attendance.
-- Face models run in the browser using `@vladmandic/face-api`.
-- Enrollment captures multiple poses and stores 128-D embeddings.
-- Live kiosk matches faces locally against the gallery.
-- Blink/liveness check reduces spoofing risk.
-- Server records attendance, AI logs, notifications, unknown events, and spoof
-  events.
+```
+RFID reader / Simulator / QR kiosk / Manual mark / Face kiosk
+        │  (every source normalizes to the same ScanInput)
+        ▼
+POST /api/presence/scan   ← the one adapter seam — a real reader device
+                             authenticates here with a per-reader key
+                             instead of a user JWT
+        ▼
+services/presence/engine.ts  processScan()
+  reader exists → reader online (RFID/QR only) → card active → card
+  assigned → student active → duplicate-window check → late + direction
+  policy  — all inside one prisma.$transaction:
+     AttendanceEvent created (append-only raw scan log)
+     Attendance upserted (existing materialized daily row — unchanged,
+                           so Dashboard/Twin/Foresight/Reports need no
+                           changes downstream)
+     recordEvent(tx)  (Trust Core — audit/undo/Time Machine)
+  → after commit: Trust Ledger entry, parent notification (in-app +
+    SMS/email/push channel stubs), realtime `presence:event` broadcast
+```
+
+- `RFIDCard`/`RFIDReader`/`AttendanceEvent`/`ReaderHeartbeat` are first-class
+  Prisma models. Cards have a full lifecycle (issue/replace/disable/lost/
+  broken/reissue) with duplicate-UID detection; readers report heartbeats and
+  are swept offline once stale.
+- Unknown card UIDs never create attendance — they raise a reviewable
+  security notification to admins instead.
+- Duplicate scans within a configurable window are logged but never
+  double-counted; late arrival is computed against a per-school configurable
+  start time + grace period.
+- The face-recognition kiosk and the teacher roster's manual PRESENT/LATE
+  marks both call the same `processScan()` — there is exactly one place that
+  writes attendance.
+- A production-shaped RFID simulator (`/presence/simulator`) drives the exact
+  same `processScan()` a physical reader would; switching to real hardware
+  means pointing a small gateway script at the same `/presence/scan` endpoint
+  with a device key, nothing else in the ERP changes.
+- Face models still run in the browser using `@vladmandic/face-api`, with
+  128-D embeddings only (no raw images stored) and a blink/liveness check.
 
 Winning upgrade:
 
-- Add pgvector/FAISS for scalable matching.
-- Add device registration and kiosk health monitoring.
-- Add offline kiosk queue for network outages.
+- Add pgvector/FAISS for scalable face matching.
+- Wire a real SMS/email/push provider behind `services/presence/channels.ts`
+  (the call sites and payloads are already in place).
+- Add offline kiosk/reader queueing for network outages.
 
 ### Copilot: Grounded Operational Assistant
 
@@ -486,7 +523,8 @@ Current realtime events:
 - `event:new`
 - `ai:log`
 - `notification:new`
-- `presence:tap`
+- `presence:event` (every scan outcome — verified/late/duplicate/unknown/rejected)
+- `presence:reader-status` (a reader flips online/offline)
 - `emergency:trigger`
 - `emergency:resolve`
 - `face:unknown`
