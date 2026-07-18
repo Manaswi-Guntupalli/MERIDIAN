@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, KeyRound, Trash2, Radio, Copy, Check } from 'lucide-react';
+import { Plus, KeyRound, Trash2, Radio, Copy, Check, Power, HeartPulse } from 'lucide-react';
 import { api, apiError } from '@/lib/api';
 import { useUI } from '@/store/ui';
 import { Card, Badge, LoadingScreen, EmptyState } from '@/components/ui';
@@ -44,11 +44,42 @@ export default function PresenceReaders() {
     onError: (e) => pushToast({ title: 'Could not delete reader', body: apiError(e), severity: 'CRITICAL' }),
   });
 
+  const setOnline = useMutation({
+    mutationFn: async (v: { id: string; online: boolean }) => api.post(`/presence/readers/${v.id}/force-status`, { online: v.online }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['presence-readers'] }),
+    onError: (e) => pushToast({ title: 'Could not change reader status', body: apiError(e), severity: 'CRITICAL' }),
+  });
+
+  const allOnline = useMutation({
+    mutationFn: async () => api.post('/presence/simulate/go-online'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['presence-readers'] });
+      pushToast({ title: 'Readers online', body: 'A heartbeat was recorded for every reader.', severity: 'SUCCESS' });
+    },
+    onError: (e) => pushToast({ title: 'Could not bring readers online', body: apiError(e), severity: 'CRITICAL' }),
+  });
+
+  const offlineCount = readers.data?.filter((r) => !r.online).length ?? 0;
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-slate-500">Physical gate hardware — a real reader authenticates against the same key issued here and POSTs to the same ingest endpoint as the Simulator.</p>
-        <button onClick={() => setShowCreate(true)} className="btn-primary shrink-0 !py-2 text-xs"><Plus className="h-3.5 w-3.5" /> Add reader</button>
+        <div className="flex shrink-0 gap-2">
+          {offlineCount > 0 && (
+            <button onClick={() => allOnline.mutate()} disabled={allOnline.isPending} className="btn-ghost !py-2 text-xs">
+              <HeartPulse className="h-3.5 w-3.5 text-mint-500" /> Bring all online
+            </button>
+          )}
+          <button onClick={() => setShowCreate(true)} className="btn-primary !py-2 text-xs"><Plus className="h-3.5 w-3.5" /> Add reader</button>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-xl border border-line bg-ink-800/40 px-4 py-3 text-xs leading-relaxed text-slate-500">
+        <b className="text-slate-700">Why do readers go offline?</b> A reader counts as Online only while it keeps sending heartbeats
+        (the threshold is set under <b className="text-slate-700">Manage → Policy</b>, default 90s). Physical hardware heartbeats automatically;
+        without hardware, the Simulator&apos;s <b className="text-slate-700">virtual gate hardware</b> does it for you — or use the power button / “Bring all online” here.
+        Scans at an offline reader are rejected, exactly as they would be in production.
       </div>
 
       {readers.isLoading ? (
@@ -72,6 +103,14 @@ export default function PresenceReaders() {
                 <span>{r.lastHeartbeat ? `seen ${timeAgo(r.lastHeartbeat)}` : 'never seen'}</span>
               </div>
               <div className="flex shrink-0 gap-1.5">
+                <button
+                  onClick={() => setOnline.mutate({ id: r.id, online: !r.online })}
+                  disabled={setOnline.isPending}
+                  className={cn('btn-ghost !p-2', r.online ? 'text-slate-400' : 'text-mint-500')}
+                  title={r.online ? 'Take offline' : 'Bring online'}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                </button>
                 <button onClick={() => rotate.mutate(r.id)} className="btn-ghost !p-2" title="Rotate device key"><KeyRound className="h-3.5 w-3.5" /></button>
                 <button
                   onClick={() => window.confirm(`Delete reader "${r.name}"? Any device using its key will stop working.`) && remove.mutate(r.id)}

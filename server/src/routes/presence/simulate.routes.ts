@@ -20,6 +20,22 @@ const router = Router();
 router.use(authenticate);
 router.use(authorize(...STAFF_ADMIN));
 
+// Virtual gate hardware: sends the same periodic heartbeat a physical
+// reader would, for every reader in the school. Goes through the real
+// recordHeartbeat path (ReaderHeartbeat rows, lastHeartbeat, online flip +
+// socket emit) so demo readers stay online exactly the way hardware does.
+router.post(
+  '/go-online',
+  asyncHandler(async (req, res) => {
+    const schoolId = req.user!.schoolId;
+    const all = await prisma.rFIDReader.findMany({ where: { schoolId }, select: { id: true } });
+    for (const r of all) {
+      await readers.recordHeartbeat(r.id, { signal: Math.round((0.82 + Math.random() * 0.17) * 100) / 100 });
+    }
+    res.json({ ok: true, readers: all.length });
+  }),
+);
+
 async function randomActiveCard(schoolId: string) {
   const active = await prisma.rFIDCard.findMany({ where: { schoolId, status: 'ACTIVE', student: { active: true } }, select: { uid: true, studentId: true } });
   if (!active.length) throw badRequest('No active cards to simulate with — issue a card first');

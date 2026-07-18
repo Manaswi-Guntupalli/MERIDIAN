@@ -13,7 +13,7 @@ const icons = {
 export default function Toaster() {
   const { toasts, dismissToast } = useUI();
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-full max-w-sm flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-[4.75rem] right-5 z-[100] flex w-full max-w-sm flex-col gap-2">
       <AnimatePresence>
         {toasts.map((t) => {
           const Icon = icons[t.severity] ?? Info;

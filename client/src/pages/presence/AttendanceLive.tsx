@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserCheck2, LogOut } from 'lucide-react';
 import { api, apiError } from '@/lib/api';
@@ -13,7 +14,13 @@ const STATUS_FILTERS = ['ALL', 'VERIFIED', 'LATE', 'DUPLICATE', 'UNKNOWN', 'REJE
 export default function PresenceAttendanceLive() {
   const qc = useQueryClient();
   const { pushToast } = useUI();
-  const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>('ALL');
+  // Deep links can pre-filter the feed: ?status=UNKNOWN (notification links)
+  // or the legacy ?filter=unknown form.
+  const [params] = useSearchParams();
+  const urlStatus = (params.get('status') ?? (params.get('filter') === 'unknown' ? 'UNKNOWN' : '')).toUpperCase();
+  const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>(
+    (STATUS_FILTERS as readonly string[]).includes(urlStatus) ? (urlStatus as (typeof STATUS_FILTERS)[number]) : 'ALL',
+  );
   const [readerId, setReaderId] = useState('');
   const [manualStudent, setManualStudent] = useState('');
 

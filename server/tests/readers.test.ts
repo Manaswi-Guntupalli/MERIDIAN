@@ -33,6 +33,19 @@ describe('Reader heartbeat & health', () => {
     expect(res.status).toBe(401);
   });
 
+  it('simulator go-online heartbeats every reader in the school back online', async () => {
+    const fx = await createFixture();
+    await prisma.rFIDReader.update({ where: { id: fx.reader.id }, data: { online: false } });
+
+    const res = await request(app).post('/api/presence/simulate/go-online').set(authHeader(fx.admin.token));
+    expect(res.status).toBe(200);
+
+    const reader = await prisma.rFIDReader.findUnique({ where: { id: fx.reader.id } });
+    expect(reader!.online).toBe(true);
+    expect(reader!.lastHeartbeat).not.toBeNull();
+    expect(await prisma.readerHeartbeat.count({ where: { readerId: fx.reader.id } })).toBe(1);
+  });
+
   it('sweeps a reader offline once its last heartbeat is older than the configured threshold', async () => {
     const fx = await createFixture();
     await request(app).put('/api/presence/settings').set(authHeader(fx.admin.token)).send({ heartbeatOfflineThresholdSeconds: 15 }).expect(200);

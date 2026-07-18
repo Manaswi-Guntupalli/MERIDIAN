@@ -350,7 +350,7 @@ async function notifyAdminsUnknownCard(schoolId: string, reader: ReaderRow, reas
       body: `${reason ?? 'Unknown card'}${place}. Needs review in Presence → Unknown Cards.`,
       severity: 'WARNING',
       category: 'SECURITY',
-      action: { href: '/presence/attendance?filter=unknown' },
+      action: { href: '/presence/activity?status=UNKNOWN' },
     });
   }
 }

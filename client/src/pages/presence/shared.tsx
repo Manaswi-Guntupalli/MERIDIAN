@@ -2,7 +2,25 @@ import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import type { EventDirection, VerificationStatus, CardStatus, StudentRow } from '@/types';
+
+export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[] }) {
+  return (
+    <div className="inline-flex rounded-lg border border-line p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={cn('rounded-md px-3.5 py-1.5 text-xs font-semibold transition', value === o.value ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-800')}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function StudentPicker({ value, onChange, classId }: { value: string; onChange: (id: string) => void; classId?: string }) {
   const students = useQuery({

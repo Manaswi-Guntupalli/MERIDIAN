@@ -5,13 +5,10 @@ import PageHeader from '@/components/PageHeader';
 
 const TABS = [
   { to: '/presence', label: 'Overview', end: true, admin: false },
-  { to: '/presence/attendance', label: 'Attendance', end: false, admin: false },
-  { to: '/presence/history', label: 'History', end: false, admin: false },
+  { to: '/presence/activity', label: 'Activity', end: false, admin: false },
   { to: '/presence/analytics', label: 'Analytics', end: false, admin: false },
-  { to: '/presence/readers', label: 'Readers', end: false, admin: true },
-  { to: '/presence/cards', label: 'Cards', end: false, admin: true },
+  { to: '/presence/manage', label: 'Manage', end: false, admin: true },
   { to: '/presence/simulator', label: 'Simulator', end: false, admin: true },
-  { to: '/presence/settings', label: 'Settings', end: false, admin: true },
 ];
 
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'];

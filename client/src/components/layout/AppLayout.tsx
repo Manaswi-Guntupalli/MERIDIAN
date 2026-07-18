@@ -6,6 +6,7 @@ import Topbar from './Topbar';
 import CommandPalette from './CommandPalette';
 import EmergencyBanner from './EmergencyBanner';
 import Toaster from '@/components/Toaster';
+import HelpWidget from '@/components/HelpWidget';
 import { useRealtime } from '@/hooks/useRealtime';
 
 export default function AppLayout() {
@@ -50,6 +51,7 @@ export default function AppLayout() {
       </div>
 
       <CommandPalette />
+      <HelpWidget />
       <Toaster />
     </div>
   );
