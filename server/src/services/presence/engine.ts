@@ -25,7 +25,7 @@ interface EngineOutcome extends ScanResult {
 
 /**
  * The Presence Engine — the single place every attendance-producing source
- * (RFID reader, RFID simulator, QR kiosk, manual mark, face-recognition
+ * (RFID reader, RFID simulator, manual mark, face-recognition
  * match) converges. Validates, decides duplicate/late/direction, and writes
  * the AttendanceEvent + materialized Attendance row in one transaction, per
  * the "everything happens inside one transaction" requirement.
@@ -41,7 +41,7 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
   const { schoolId, source } = input;
   const now = input.simulateAt ?? new Date();
 
-  if ((source === 'RFID' || source === 'QR') && (!input.readerId || !input.cardUid)) {
+  if ((source === 'RFID' || source === 'FUSION') && (!input.readerId || !input.cardUid)) {
     throw badRequest(`${source} scans require both readerId and cardUid`);
   }
   if ((source === 'MANUAL' || source === 'CV') && !input.studentId) {
@@ -56,7 +56,7 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
       const row = await tx.rFIDReader.findFirst({ where: { id: input.readerId, schoolId } });
       if (!row) throw badRequest('Unknown reader'); // malformed request — nothing written
       reader = row;
-      if ((source === 'RFID' || source === 'QR') && !row.online) {
+      if ((source === 'RFID' || source === 'FUSION') && !row.online) {
         return writeOutcome(tx, { schoolId, source, readerId: row.id, verificationStatus: 'REJECTED', reason: 'Reader is offline', timestamp: now });
       }
     }
@@ -64,7 +64,7 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
     let card: { id: string; status: string; studentId: string } | null = null;
     let studentId = input.studentId ?? null;
 
-    if (source === 'RFID' || source === 'QR') {
+    if (source === 'RFID' || source === 'FUSION') {
       card = await tx.rFIDCard.findFirst({ where: { schoolId, uid: input.cardUid! } });
       if (!card) {
         return writeOutcome(tx, {
@@ -103,9 +103,49 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
       return writeOutcome(tx, { schoolId, source, readerId: reader?.id, cardId: card?.id, studentId: student.id, verificationStatus: 'REJECTED', reason: 'Student has no class assigned', timestamp: now });
     }
 
+    // ── Fusion gate (anti-proxy) — the card CLAIMED this student; the face
+    //    must CONFIRM it. A failed 1:1 verify is written as PROXY, with who
+    //    the face actually matched when we know. This runs before the
+    //    duplicate check so a blocked proxy never consumes the real
+    //    student's scan window. ──
+    if (source === 'FUSION') {
+      const fu = input.fusion;
+      if (!fu) throw badRequest('FUSION scans require the face verification block');
+      if (fu.samples === 0 && fu.required) {
+        // Strict gate: attendance needs the card AND a verified face. An
+        // un-enrolled cardholder cannot pass — audited as a rejection, with
+        // the fix spelled out, never silently downgraded.
+        return writeOutcome(tx, {
+          schoolId,
+          source,
+          readerId: reader?.id,
+          cardId: card?.id,
+          studentId: student.id,
+          verificationStatus: 'REJECTED',
+          reason: `${student.name} has no enrolled face — this gate requires card + face. Enroll under Face → Enrollment.`,
+          timestamp: now,
+        });
+      }
+      if (fu.samples > 0 && fu.similarity < fu.threshold) {
+        const imposter = fu.matchedSubjectId && fu.matchedSubjectId !== student.id && fu.matchedName ? ` — face instead matched ${fu.matchedName}` : '';
+        return writeOutcome(tx, {
+          schoolId,
+          source,
+          readerId: reader?.id,
+          cardId: card?.id,
+          studentId: student.id,
+          verificationStatus: 'PROXY',
+          reason: `Face does not match cardholder ${student.name} (similarity ${(fu.similarity * 100).toFixed(0)}% < ${(fu.threshold * 100).toFixed(0)}%)${imposter}`,
+          timestamp: now,
+        });
+      }
+      // samples === 0 means the student has no enrolled face — the route
+      // downgrades to RFID before reaching here, so this is a safety net.
+    }
+
     // Duplicate protection — a MANUAL correction is always an intentional
     // staff decision, never an accidental double-tap, so it skips this
-    // window entirely. RFID/QR/CV all share the same check.
+    // window entirely. RFID/CV all share the same check.
     if (source !== 'MANUAL') {
       const windowStart = new Date(now.getTime() - settings.duplicateWindowSeconds * 1000);
       const recent = await tx.attendanceEvent.findFirst({
@@ -168,6 +208,12 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
 
     const verificationStatus: VerificationStatus = late ? 'LATE' : 'VERIFIED';
 
+    // A verified fusion scan records the proof in its own notes — the event
+    // row itself says the face confirmed the cardholder.
+    const fusionNote =
+      source === 'FUSION' && input.fusion
+        ? `face verified ${(input.fusion.similarity * 100).toFixed(0)}% (${input.fusion.samples} template${input.fusion.samples === 1 ? '' : 's'})`
+        : null;
     const event = await tx.attendanceEvent.create({
       data: {
         schoolId,
@@ -181,7 +227,7 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
         late,
         lateMinutes,
         createdBy: input.createdBy,
-        notes: input.notes,
+        notes: fusionNote ? [input.notes, fusionNote].filter(Boolean).join(' · ') : input.notes,
       },
     });
 
@@ -245,7 +291,7 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
     engine: 'PRESENCE',
     action: `${source} ${scanResult.direction.toLowerCase()} — ${scanResult.status.toLowerCase()}`,
     reason: scanResult.reason ?? `${source} scan resolved and recorded`,
-    confidence: source === 'CV' ? _confidence ?? 0.9 : 1,
+    confidence: source === 'CV' || source === 'FUSION' ? _confidence ?? 0.9 : 1,
     input: { source, readerId: input.readerId, cardUid: input.cardUid },
     output: { studentId: scanResult.student?.id, status: scanResult.status, direction: scanResult.direction },
     actorId: input.createdBy,
@@ -255,9 +301,32 @@ export async function processScan(input: ScanInput): Promise<ScanResult> {
     await notifyParents(schoolId, scanResult, _reader);
   } else if (scanResult.status === 'UNKNOWN') {
     await notifyAdminsUnknownCard(schoolId, _reader, scanResult.reason);
+  } else if (scanResult.status === 'PROXY') {
+    // A blocked proxy attempt is a security incident, not attendance noise:
+    // log it in the face-event review queue and alert every admin.
+    await prisma.faceEvent.create({
+      data: { schoolId, kind: 'PROXY', confidence: input.fusion?.similarity ?? 0, cameraId: _reader?.name ?? 'gate', note: scanResult.reason },
+    });
+    await notifyAdminsProxy(schoolId, _reader, scanResult.reason);
   }
 
   return scanResult;
+}
+
+async function notifyAdminsProxy(schoolId: string, reader: ReaderRow, reason?: string) {
+  const admins = await prisma.user.findMany({ where: { schoolId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'] }, active: true } });
+  const place = reader ? ` at ${reader.location} (${reader.name})` : '';
+  for (const admin of admins) {
+    await notify({
+      schoolId,
+      userId: admin.id,
+      title: 'Possible proxy attendance blocked',
+      body: `${reason ?? 'Face did not match the cardholder'}${place}. The tap was rejected and no attendance was recorded.`,
+      severity: 'CRITICAL',
+      category: 'SECURITY',
+      action: { href: '/presence/activity?status=PROXY' },
+    });
+  }
 }
 
 // Writes a non-success outcome (REJECTED / UNKNOWN / DUPLICATE) as its own
@@ -271,7 +340,7 @@ async function writeOutcome(
     readerId?: string;
     cardId?: string;
     studentId?: string | null;
-    verificationStatus: 'REJECTED' | 'UNKNOWN' | 'DUPLICATE';
+    verificationStatus: 'REJECTED' | 'UNKNOWN' | 'DUPLICATE' | 'PROXY';
     reason: string;
     timestamp: Date;
     notes?: string;

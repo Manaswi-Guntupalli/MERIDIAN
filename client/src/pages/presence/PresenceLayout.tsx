@@ -1,6 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import { Moon } from 'lucide-react';
 import { useAuth } from '@/store/auth';
 import { cn } from '@/lib/utils';
+import { useSchoolStatus } from '@/hooks/useSchoolStatus';
 import PageHeader from '@/components/PageHeader';
 
 const TABS = [
@@ -17,14 +19,29 @@ export default function PresenceLayout() {
   const user = useAuth((s) => s.user);
   const isAdmin = !!user && ADMIN_ROLES.includes(user.role);
   const tabs = TABS.filter((t) => !t.admin || isAdmin);
+  const school = useSchoolStatus();
 
   return (
     <div>
       <PageHeader
         overline="Engine 05 · Presence"
         title="Presence"
-        subtitle="Event-driven attendance — RFID, QR, manual and face recognition all flow through one pipeline, the single source of truth for the rest of Meridian."
+        subtitle="Event-driven attendance — RFID, manual and face recognition all flow through one pipeline, the single source of truth for the rest of Meridian."
       />
+
+      {/* Live attendance is time-bound — when school is out of session, say so
+          plainly. Nothing is disabled: readers, history and analytics all stay
+          available (and the Simulator still works for demos). */}
+      {!school.inSession && school.phase !== 'LOADING' && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-line bg-ink-800/40 px-4 py-3">
+          <Moon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+          <p className="text-xs leading-relaxed text-slate-500">
+            <b className="text-slate-700">School is out of session ({school.label.toLowerCase()}).</b> Live attendance capture is idle — {school.detail.toLowerCase()}.
+            Readers stay online, and history &amp; analytics remain fully available. The Simulator still runs for demos and testing.
+          </p>
+        </div>
+      )}
+
       <div className="mb-6 flex items-center gap-1 overflow-x-auto border-b border-line pb-px">
         {tabs.map((t) => (
           <NavLink

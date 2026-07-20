@@ -1,75 +1,221 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Radar, TrendingDown, Users, Wallet, Activity } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Radar, Users, Wallet, Activity, AlertTriangle, MessageSquare, FileWarning, ChevronDown } from 'lucide-react';
+import { api, apiError } from '@/lib/api';
+import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
-import { Card, Badge, LoadingScreen, ConfidenceRing } from '@/components/ui';
-import { cn } from '@/lib/utils';
-import type { Prediction } from '@/types';
+import { Card, Badge, LoadingScreen, Meter } from '@/components/ui';
+import { cn, inr, pct } from '@/lib/utils';
 
-const kindMeta: Record<string, { icon: any; accent: string; label: string }> = {
-  ABSENCE: { icon: TrendingDown, accent: 'text-amber-400', label: 'Absence forecast' },
-  SUBSTITUTE_DEMAND: { icon: Users, accent: 'text-brand-400', label: 'Substitute demand' },
-  ATTENDANCE_TREND: { icon: Activity, accent: 'text-cyan-400', label: 'Attendance trend' },
-  FEE_RISK: { icon: Wallet, accent: 'text-rose-400', label: 'Fee risk' },
-};
+// ── Engine payload slices this page reads (display only — computed in Python) ──
+interface Forecast {
+  available: boolean; prediction?: number; interval80?: number[]; interval95?: number[];
+  interval95_upper?: number; model?: string; note?: string; reason?: string; caveat?: string | null;
+}
+interface AtRiskStudent {
+  studentId: string; name: string; className: string | null; riskScore: number; band: 'HIGH' | 'ELEVATED';
+  factors: { attendanceRate: number; attendanceDeficit: number; feeOverdueDays: number; feesDue: number; lateShare: number; trendDelta: number | null };
+  reasons: string[];
+  confidence: { value: number; explanation: string };
+}
+interface AtRisk {
+  available: boolean; reason?: string; method?: string; formula?: string;
+  weights?: Record<string, number>; bands?: Record<string, number>;
+  window?: { days: number; from: string; to: string };
+  n_flagged: number; n_high?: number; students: AtRiskStudent[];
+}
+interface IntelResponse {
+  engine: 'online' | 'offline';
+  error?: string;
+  payload?: {
+    meta: { computedAt: string; anchorDate: string; engineVersion: string };
+    forecasts: { attendanceTomorrow: Forecast; substituteDemand: Forecast; feeCollections: Forecast; documentReviewLoad: Forecast };
+    atRisk?: AtRisk;
+  };
+}
 
+/**
+ * Foresight — early warning, honestly.
+ * Everything on this page is computed by the Python intelligence engine from
+ * database records: forecasts carry their model and interval; the at-risk
+ * index ships its formula, declared weights and per-student arithmetic.
+ * When the engine is down the page says so — it never invents numbers.
+ */
 export default function Foresight() {
-  const { data, isLoading } = useQuery({ queryKey: ['predictions'], queryFn: async () => (await api.get('/predictions')).data.predictions as Prediction[] });
-  if (isLoading) return <LoadingScreen label="Computing forecasts…" />;
+  const { pushToast } = useUI();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['intelligence'],
+    queryFn: async () => (await api.get('/dashboard/intelligence')).data as IntelResponse,
+  });
+
+  const outreach = useMutation({
+    mutationFn: async (studentIds?: string[]) =>
+      (await api.post('/actions/execute', { kind: 'at-risk-outreach', ...(studentIds ? { studentIds } : {}) })).data,
+    onSuccess: (res) => {
+      pushToast({ title: 'Outreach sent', body: res.summary, severity: 'SUCCESS' });
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+    },
+    onError: (e) => pushToast({ title: 'Outreach failed', body: apiError(e), severity: 'CRITICAL' }),
+  });
+  const flag = useMutation({
+    mutationFn: async (studentIds: string[]) => (await api.post('/actions/execute', { kind: 'counselling-flag', studentIds })).data,
+    onSuccess: (res) => pushToast({ title: 'Flagged for counselling', body: res.summary, severity: 'SUCCESS' }),
+    onError: (e) => pushToast({ title: 'Flag failed', body: apiError(e), severity: 'CRITICAL' }),
+  });
+
+  if (isLoading) return <LoadingScreen label="Asking the intelligence engine…" />;
+  const pl = data?.engine === 'online' ? data.payload : undefined;
+  const atRisk = pl?.atRisk;
 
   return (
     <div>
       <PageHeader
         overline="Engine 04 · Foresight"
-        title="Predict the strain before it hits"
-        subtitle="Gradient-boosted forecasts of tomorrow's staffing strain — with the top drivers behind every prediction (SHAP-style)."
+        title="See the strain before it hits"
+        subtitle="Forecasts with intervals and models, and an at-risk index whose arithmetic is on the page — computed by the Python engine, never invented."
       />
 
-      <div className="mb-6 rounded-2xl border border-brand-400/20 bg-brand-500/[0.06] p-4 text-sm text-slate-600">
-        <span className="font-semibold text-brand-400">Loop:</span> Foresight predicts → Kairos pre-solves cover → Command Center shows one proactive alert. The engines act as one nervous system.
-      </div>
+      {!pl && (
+        <Card className="mb-6">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <AlertTriangle className="h-4 w-4 text-amber-500" /> Intelligence engine offline
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Forecasts and the at-risk index are computed by the Python engine. Start it with{' '}
+            <code className="rounded bg-ink-800 px-1.5 py-0.5 text-[0.7rem] text-slate-700">npm run intelligence</code> — this page shows nothing rather than something made up.
+            {data?.error && <span className="mt-1 block text-slate-400">({data.error})</span>}
+          </p>
+        </Card>
+      )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {data?.map((p, i) => {
-          const meta = kindMeta[p.kind] ?? kindMeta.ATTENDANCE_TREND;
-          return (
-            <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
-              <Card>
-                <div className="flex items-start gap-4">
-                  <div className="shrink-0"><ConfidenceRing value={p.confidence} size={52} /></div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <meta.icon className={cn('h-4 w-4', meta.accent)} />
-                      <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-500">{meta.label}</span>
-                      <Badge className="ml-auto">for {p.targetDate.slice(5)}</Badge>
-                    </div>
-                    <div className="mt-1.5 text-sm font-semibold text-slate-900">{p.label}</div>
+      {pl && (
+        <>
+          {/* Forecasts — interval + model on every cell */}
+          <Card className="!p-0">
+            <div className="flex items-center justify-between border-b border-line px-5 py-4">
+              <div className="flex items-center gap-2"><Radar className="h-4 w-4 text-brand-400" /><h2 className="font-bold text-slate-900">Forecasts</h2></div>
+              <span className="text-[0.7rem] text-slate-500">prediction intervals, not point promises · engine v{pl.meta.engineVersion}</span>
+            </div>
+            <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x lg:grid-cols-4 lg:[&>*]:!border-t-0">
+              <ForecastCell icon={<Activity className="h-3.5 w-3.5" />} label="Attendance tomorrow" f={pl.forecasts.attendanceTomorrow} fmt={(v) => pct(v * 100)} ifmt={(v) => pct(v * 100)} />
+              <ForecastCell icon={<Users className="h-3.5 w-3.5" />} label="Substitute demand / day" f={pl.forecasts.substituteDemand} fmt={(v) => String(v)} ifmt={(v) => String(v)} />
+              <ForecastCell icon={<Wallet className="h-3.5 w-3.5" />} label="Expected fee recovery" f={pl.forecasts.feeCollections} fmt={(v) => inr(v)} ifmt={(v) => inr(v)} />
+              <ForecastCell icon={<FileWarning className="h-3.5 w-3.5" />} label="Document review load" f={pl.forecasts.documentReviewLoad} fmt={(v) => String(v)} ifmt={(v) => String(v)} />
+            </div>
+          </Card>
 
-                    <div className="mt-3 space-y-1.5">
-                      <div className="text-[0.65rem] uppercase tracking-wider text-slate-400">Top drivers</div>
-                      {p.drivers.map((d, j) => (
-                        <div key={j} className="flex items-center gap-2">
-                          <span className="w-28 shrink-0 truncate text-xs text-slate-500">{d.factor}</span>
-                          <div className="relative h-1.5 flex-1 rounded-full bg-ink-800">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${Math.abs(d.impact) * 100}%` }}
-                              transition={{ delay: 0.2 + j * 0.05, duration: 0.6 }}
-                              className={cn('absolute left-0 top-0 h-full rounded-full', d.impact >= 0 ? 'bg-amber-400' : 'bg-mint-400')}
-                            />
-                          </div>
-                          <span className={cn('w-8 text-right text-[0.65rem] font-semibold', d.impact >= 0 ? 'text-amber-400' : 'text-mint-400')}>{d.impact >= 0 ? '+' : ''}{Math.round(d.impact * 100)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+          {/* At-risk index */}
+          <Card className="mt-6 !p-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <h2 className="font-bold text-slate-900">Students at risk</h2>
+                {atRisk?.available && atRisk.n_flagged > 0 && (
+                  <Badge severity={atRisk.n_high ? 'WARNING' : 'INFO'}>{atRisk.n_flagged} flagged · {atRisk.n_high ?? 0} high</Badge>
+                )}
+              </div>
+              {atRisk?.available && atRisk.n_flagged > 0 && (
+                <button
+                  onClick={() => outreach.mutate(undefined)}
+                  disabled={outreach.isPending}
+                  className="btn-primary !py-1.5 text-xs"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" /> {outreach.isPending ? 'Messaging…' : 'Message all families'}
+                </button>
+              )}
+            </div>
+
+            {!atRisk?.available ? (
+              <div className="px-5 py-6 text-sm text-slate-500">{atRisk?.reason ?? 'At-risk index unavailable.'}</div>
+            ) : atRisk.n_flagged === 0 ? (
+              <div className="px-5 py-6 text-sm text-slate-500">No student crosses the declared risk bands right now — over {atRisk.window?.days} fully-marked days.</div>
+            ) : (
+              <>
+                <div className="divide-y divide-line">
+                  {atRisk.students.map((s, i) => (
+                    <RiskRow key={s.studentId} s={s} i={i}
+                      onMessage={() => outreach.mutate([s.studentId])}
+                      onFlag={() => flag.mutate([s.studentId])}
+                      busy={outreach.isPending || flag.isPending}
+                    />
+                  ))}
                 </div>
-              </Card>
-            </motion.div>
-          );
-        })}
+                {/* The arithmetic — always visible, judge-proof */}
+                <div className="border-t border-line bg-ink-800/30 px-5 py-3 text-[0.7rem] leading-relaxed text-slate-500">
+                  <b className="text-slate-600">How this is computed:</b> {atRisk.method}
+                  <span className="mt-0.5 block font-mono text-[0.65rem]">{atRisk.formula}</span>
+                  <span className="mt-0.5 block">Window {atRisk.window?.from} → {atRisk.window?.to} ({atRisk.window?.days} fully-marked days) · bands: HIGH ≥ {Math.round((atRisk.bands?.HIGH ?? 0) * 100)}, ELEVATED ≥ {Math.round((atRisk.bands?.ELEVATED ?? 0) * 100)}</span>
+                </div>
+              </>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RiskRow({ s, i, onMessage, onFlag, busy }: { s: AtRiskStudent; i: number; onMessage: () => void; onFlag: () => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }} className="px-5 py-3.5">
+      <div className="flex items-center gap-4">
+        <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl text-xs font-bold', s.band === 'HIGH' ? 'bg-rose-400/15 text-rose-500' : 'bg-amber-400/15 text-amber-600')}>
+          {s.riskScore}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            {s.name}
+            {s.className && <span className="text-xs font-normal text-slate-500">{s.className}</span>}
+            <Badge severity={s.band === 'HIGH' ? 'CRITICAL' : 'WARNING'}>{s.band === 'HIGH' ? 'High risk' : 'Elevated'}</Badge>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-slate-500">{s.reasons.join(' · ')}</div>
+        </div>
+        <div className="hidden w-28 shrink-0 sm:block"><Meter value={s.riskScore} tone={s.band === 'HIGH' ? 'amber' : 'brand'} /></div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button onClick={onMessage} disabled={busy} className="btn-ghost !px-2.5 !py-1 text-[0.72rem]" title="Message this family now"><MessageSquare className="h-3.5 w-3.5" /> Message</button>
+          <button onClick={onFlag} disabled={busy} className="btn-ghost !px-2.5 !py-1 text-[0.72rem]" title="Flag for counselling follow-up">Flag</button>
+          <button onClick={() => setOpen((v) => !v)} className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-ink-800 hover:text-slate-700" aria-label="Why this score?">
+            <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
+          </button>
+        </div>
       </div>
+      {open && (
+        <div className="mt-2 rounded-lg border border-line bg-ink-800/40 px-3 py-2 text-[0.7rem] leading-relaxed text-slate-500">
+          <b className="text-slate-600">Factors:</b>{' '}
+          attendance {Math.round(s.factors.attendanceRate * 100)}% (deficit {s.factors.attendanceDeficit}) · fees ₹{s.factors.feesDue.toLocaleString('en-IN')} / {s.factors.feeOverdueDays}d overdue · late share {Math.round(s.factors.lateShare * 100)}%
+          {s.factors.trendDelta !== null && <> · trend {s.factors.trendDelta > 0 ? '+' : ''}{Math.round(s.factors.trendDelta * 100)} pts</>}
+          <span className="mt-0.5 block"><b className="text-slate-600">Confidence {s.confidence.value}%:</b> {s.confidence.explanation}</span>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function ForecastCell({ icon, label, f, fmt, ifmt }: { icon: React.ReactNode; label: string; f: Forecast; fmt: (v: number) => string; ifmt: (v: number) => string }) {
+  const interval = f.interval80 ?? f.interval95;
+  return (
+    <div className="px-5 py-4">
+      <div className="flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.07em] text-slate-400">
+        <span className="text-brand-400">{icon}</span>{label}
+      </div>
+      {f.available && f.prediction != null ? (
+        <>
+          <div className="tnum mt-1.5 font-display text-[1.35rem] font-semibold leading-none text-slate-900">{fmt(f.prediction)}</div>
+          <div className="mt-1 text-[0.7rem] text-slate-500">
+            {interval
+              ? `${f.interval80 ? '80%' : '95%'} interval ${ifmt(interval[0])} – ${ifmt(interval[1])}`
+              : f.interval95_upper != null
+                ? `95% upper bound ${ifmt(f.interval95_upper)}`
+                : f.note ?? ''}
+          </div>
+          <div className="mt-0.5 truncate text-[0.65rem] text-slate-400" title={`${f.model ?? ''}${f.caveat ? ` — ${f.caveat}` : ''}`}>{f.model}{f.caveat ? ' *' : ''}</div>
+        </>
+      ) : (
+        <div className="mt-1.5 text-xs text-slate-500">{f.reason ?? 'Not available'}</div>
+      )}
     </div>
   );
 }

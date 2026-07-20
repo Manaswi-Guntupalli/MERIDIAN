@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { toJson, fromJson } from '../lib/json.js';
-import { emitToSchool } from '../lib/socket.js';
+import { emitToSchool, emitToUser } from '../lib/socket.js';
 
 export interface NotificationInput {
   schoolId: string;
@@ -24,7 +24,11 @@ export async function notify(input: NotificationInput) {
       actionString: toJson(input.action ?? null),
     },
   });
-  emitToSchool(input.schoolId, 'notification:new', serializeNotification(n));
+  // A personal notification is emitted only to its addressee's sockets —
+  // broadcasting it school-wide would leak its content (and toast it) to
+  // every connected user. Only truly school-wide notices (no userId) fan out.
+  if (input.userId) emitToUser(input.userId, 'notification:new', serializeNotification(n));
+  else emitToSchool(input.schoolId, 'notification:new', serializeNotification(n));
   return n;
 }
 

@@ -13,9 +13,26 @@ export function pct(n: number): string {
   return `${Math.round(n)}%`;
 }
 
+// Honorifics/titles that precede a real name — stripped before we derive a
+// first name or initials, so "Dr. Kavita Menon" greets as "Kavita", not "Dr."
+const HONORIFICS = new Set(['dr', 'mr', 'mrs', 'ms', 'mx', 'prof', 'miss', 'sir', 'madam', 'rev', 'fr', 'capt', 'col', 'lt', 'sgt']);
+
+function nameParts(name: string): string[] {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  // Drop a leading honorific only when it isn't the whole name.
+  if (parts.length > 1 && HONORIFICS.has(parts[0].replace(/\.$/, '').toLowerCase())) {
+    return parts.slice(1);
+  }
+  return parts;
+}
+
+/** The person's given name, skipping any honorific ("Dr. Kavita Menon" → "Kavita"). */
+export function firstName(name: string): string {
+  return nameParts(name)[0] ?? name;
+}
+
 export function initials(name: string): string {
-  return name
-    .split(' ')
+  return nameParts(name)
     .map((p) => p[0])
     .filter(Boolean)
     .slice(0, 2)

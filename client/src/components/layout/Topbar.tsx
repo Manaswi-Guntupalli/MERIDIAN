@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import { initials, roleLabel } from '@/lib/utils';
+import SchoolStatusChip from '@/components/SchoolStatusChip';
 
 export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const user = useAuth((s) => s.user);
@@ -76,6 +77,8 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
       </button>
 
       <div className="flex-1" />
+
+      <SchoolStatusChip />
 
       {isStaff && (
         <button onClick={() => navigate('/emergency')} className="btn-quiet !text-rose-400 hover:!bg-rose-400/[0.08]" title="Emergency">

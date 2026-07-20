@@ -85,4 +85,40 @@ router.post(
   }),
 );
 
+// ── The reactive cascade: absence → auto-cover → freed rooms → notify →
+//    one reversible ledger event. Returns the executed step timeline. ──
+const cascadeSchema = z.object({
+  teacherId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.string().optional(),
+});
+router.post(
+  '/absence/cascade',
+  authorize(...STAFF_ADMIN),
+  validateBody(cascadeSchema),
+  asyncHandler(async (req, res) => {
+    const { teacherId, date, reason } = req.body as z.infer<typeof cascadeSchema>;
+    const { runAbsenceCascade } = await import('../services/kairos/index.js');
+    const result = await runAbsenceCascade(req.user!.schoolId, teacherId, date, { id: req.user!.sub, name: req.user!.name }, reason);
+    res.status(201).json(result);
+  }),
+);
+
+// Undo the whole cascade in one action (state restored atomically; the people
+// already notified receive an explicit correction, never silence).
+const undoSchema = z.object({ eventId: z.string() });
+router.post(
+  '/absence/undo',
+  authorize(...STAFF_ADMIN),
+  validateBody(undoSchema),
+  asyncHandler(async (req, res) => {
+    const { undoAbsenceCascade } = await import('../services/kairos/index.js');
+    const result = await undoAbsenceCascade(req.user!.schoolId, (req.body as z.infer<typeof undoSchema>).eventId, {
+      id: req.user!.sub,
+      name: req.user!.name,
+    });
+    res.json(result);
+  }),
+);
+
 export default router;

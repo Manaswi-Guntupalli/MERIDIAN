@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { asyncHandler } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { computePredictions } from '../services/foresight.js';
+import { getDashboardIntelligence } from '../services/intelligence.js';
 import { ROLES, STAFF_ADMIN } from '../utils/constants.js';
 
 const router = Router();
@@ -242,132 +242,19 @@ router.get(
   }),
 );
 
-// Command Center — proactive, ranked alerts (bottlenecks first).
+// Operations intelligence — proxied verbatim from the Python engine.
+// The old /command-center and /insights routes (hardcoded confidences,
+// invented causes) were removed in favour of this: Node adds auth and a
+// short cache, and computes NOTHING. If the engine is down the client gets
+// an explicit offline state — never locally invented numbers.
 router.get(
-  '/command-center',
+  '/intelligence',
   authorize(...STAFF_ADMIN),
   asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const totalStudents = await prisma.student.count({ where: { schoolId } });
-    const t = await representativeDate(schoolId, totalStudents);
-    const alerts: any[] = [];
-
-    // Uncovered classes today (teacher absent, no substitution)
-    const absences = await prisma.staffAbsence.findMany({
-      where: { date: t, teacher: { schoolId } },
-      include: { teacher: { include: { user: true } }, substitutions: true },
-    });
-    const uncovered = absences.filter((a) => a.substitutions.length === 0);
-    if (uncovered.length) {
-      alerts.push({
-        id: 'bottleneck-cover',
-        severity: 'CRITICAL',
-        icon: 'bottleneck',
-        title: `${uncovered.length} class(es) uncovered today`,
-        detail: uncovered.map((a) => a.teacher.user.name).join(', ') + ' absent',
-        recommendation: 'Assign the least-loaded qualified teacher to cover.',
-        confidence: 0.93,
-        action: { label: 'Suggest subs', to: '/foresight' },
-      });
-    }
-
-    // Fees crossing 30 days
-    const overdue = await prisma.fee.count({ where: { schoolId, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } } });
-    if (overdue) {
-      alerts.push({
-        id: 'fees-overdue',
-        severity: 'WARNING',
-        icon: 'fees',
-        title: `${overdue} fee account(s) crossing 30 days`,
-        detail: 'Guardians approaching the overdue threshold',
-        recommendation: `Auto-draft reminders to all ${overdue} guardians.`,
-        confidence: 0.9,
-        action: { label: 'Draft reminders', to: '/fees' },
-      });
-    }
-
-    // Documents awaiting review
-    const review = await prisma.document.count({ where: { schoolId, status: 'REVIEW' } });
-    if (review) {
-      alerts.push({
-        id: 'docs-review',
-        severity: 'WARNING',
-        icon: 'docs',
-        title: `${review} document(s) need human review`,
-        detail: 'Low-confidence fields from Lumen extraction',
-        recommendation: 'Clear the worst-first review queue in Lumen.',
-        confidence: 0.86,
-        action: { label: 'Open review queue', to: '/lumen' },
-      });
-    }
-
-    // Timetable conflicts (from active timetable score)
-    const tt = await prisma.timetable.findFirst({ where: { schoolId, active: true } });
-    if (tt && tt.score < 80) {
-      alerts.push({
-        id: 'timetable-soft',
-        severity: 'INFO',
-        icon: 'timetable',
-        title: `Timetable running at ${Math.round(tt.score)} / 100`,
-        detail: 'Soft constraints leaving room to improve',
-        recommendation: "Apply Kairos' cheapest relaxation to lift the score.",
-        confidence: 0.8,
-        action: { label: 'Open Kairos', to: '/kairos' },
-      });
-    }
-
-    // Positive: attendance synced
-    const rooms = await prisma.attendance.groupBy({ by: ['classId'], where: { schoolId, date: t } });
-    alerts.push({
-      id: 'attendance-synced',
-      severity: 'SUCCESS',
-      icon: 'attendance',
-      title: `Attendance synced across ${rooms.length} class(es)`,
-      detail: 'All Presence kiosks reporting to the event store',
-      recommendation: 'No action needed — running smoothly.',
-      confidence: 0.99,
-      action: { label: 'View', to: '/attendance' },
-    });
-
-    res.json({ alerts });
-  }),
-);
-
-// AI Insight Feed — natural-language insights with cause + confidence.
-router.get(
-  '/insights',
-  authorize(...STAFF_ADMIN),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { preds, trend, recentRate } = await computePredictions(schoolId);
-    const insights = [
-      trend < -0.02
-        ? {
-            severity: 'WARNING',
-            title: `Attendance dropped ${Math.abs(Math.round(trend * 100))}% this week`,
-            cause: 'Likely cause: regional heavy rainfall + mid-week fatigue',
-            confidence: 91,
-          }
-        : {
-            severity: 'SUCCESS',
-            title: `Attendance holding steady at ${Math.round(recentRate * 100)}%`,
-            cause: 'Consistent with the last two weeks',
-            confidence: 88,
-          },
-      {
-        severity: 'INFO',
-        title: preds.find((p) => p.kind === 'SUBSTITUTE_DEMAND')?.label ?? 'Substitute demand stable',
-        cause: 'Driven by forecast staff absence and teachers near hour cap',
-        confidence: 66,
-      },
-      {
-        severity: 'WARNING',
-        title: preds.find((p) => p.kind === 'FEE_RISK')?.label ?? 'Fee risk stable',
-        cause: 'Accounts approaching the 30-day overdue mark',
-        confidence: 72,
-      },
-    ];
-    res.json({ insights });
+    // ?fresh=1 bypasses the 30s cache — the dashboard's "Recompute" button,
+    // so an admin who just changed data can see the effect immediately.
+    const result = await getDashboardIntelligence(req.user!.schoolId, { fresh: req.query.fresh === '1' });
+    res.json(result);
   }),
 );
 

@@ -38,4 +38,7 @@ export const env = {
   // How long failed/abandoned documents are kept before the retention sweep
   // removes them. Committed and verified records are never auto-deleted.
   lumenRetentionDays: Number(process.env.LUMEN_RETENTION_DAYS ?? 30),
+  // Python intelligence engine (FastAPI). Node only orchestrates — all
+  // analytics, confidence and ranking are computed there.
+  intelligenceUrl: process.env.INTELLIGENCE_URL ?? 'http://localhost:8010',
 };

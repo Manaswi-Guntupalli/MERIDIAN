@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { generateDraft, approveDraft, publishDraft } from '../src/services/kairos/index.js';
+import { renderAdmissionForm } from '../src/services/lumen/sampleForm.js';
+import { savePagePreview, saveOriginal } from '../src/services/lumen/storage.js';
 
 const prisma = new PrismaClient();
 
@@ -131,6 +133,10 @@ async function main() {
     { name: 'Mr. Reddy', dept: 'Physical Ed', subjects: ['PE'], maxHours: 20, maxConsecutive: 4 },
     { name: 'Ms. Kapoor', dept: 'English', subjects: ['ENG', 'SST'], maxHours: 24 },
     { name: 'Mr. Verma', dept: 'Mathematics', subjects: ['MATH', 'CS'], maxHours: 24 },
+    // Third Science-qualified teacher with deliberate spare capacity — so a
+    // Science absence has a real substitute pool (the cascade demo), and the
+    // solver can spread lab-heavy load instead of maxing out Iyer + Bose.
+    { name: 'Ms. Menon', dept: 'Science', subjects: ['SCI', 'MATH'], maxHours: 22 },
   ];
   const teachers = [];
   for (let i = 0; i < teacherDefs.length; i++) {
@@ -409,13 +415,28 @@ async function main() {
   const doc1 = await prisma.document.create({
     data: { schoolId, type: 'ADMISSION', fileName: 'admission-aditi.jpg', status: 'REVIEW', overallConfidence: 0.83 },
   });
-  await prisma.extractedField.createMany({
-    data: [
-      { documentId: doc1.id, key: 'studentName', label: 'Student name', value: 'Aditi R. Menon', confidence: 0.99, cropX: 0.12, cropY: 0.14, cropW: 0.5, cropH: 0.08, status: 'AUTO' },
-      { documentId: doc1.id, key: 'guardianPhone', label: 'Guardian phone', value: '+91 98••• ••210', confidence: 0.97, cropX: 0.12, cropY: 0.27, cropW: 0.5, cropH: 0.08, status: 'AUTO' },
-      { documentId: doc1.id, key: 'bloodGroup', label: 'Blood group', value: 'B+', confidence: 0.61, cropX: 0.12, cropY: 0.4, cropW: 0.3, cropH: 0.08, status: 'REVIEW' },
-    ],
-  });
+  // Every visible field on the form is a real extracted field — the document
+  // preview and the extraction panel are one-to-one. bloodGroup stays low
+  // confidence so it drives the "needs review" workflow.
+  const doc1Fields = [
+    { documentId: doc1.id, key: 'studentName', label: 'Student name', value: 'Aditi R. Menon', confidence: 0.99, cropX: 0.12, cropY: 0.14, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'phone', label: 'Contact number', value: '+91 98••• ••210', confidence: 0.97, cropX: 0.12, cropY: 0.235, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'bloodGroup', label: 'Blood group', value: 'B+', confidence: 0.61, cropX: 0.12, cropY: 0.33, cropW: 0.3, cropH: 0.055, status: 'REVIEW' },
+    { documentId: doc1.id, key: 'dob', label: 'Date of birth', value: '14 March 2016', confidence: 0.95, cropX: 0.12, cropY: 0.425, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'className', label: 'Class applying for', value: 'Grade 8 · Section A', confidence: 0.93, cropX: 0.12, cropY: 0.52, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'address', label: 'Address', value: '18 Nandi Hills Road, Bengaluru 560001', confidence: 0.86, cropX: 0.12, cropY: 0.615, cropW: 0.7, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'previousSchool', label: 'Previous school', value: 'Little Scholars Montessori', confidence: 0.9, cropX: 0.12, cropY: 0.71, cropW: 0.6, cropH: 0.055, status: 'AUTO' },
+  ];
+  await prisma.extractedField.createMany({ data: doc1Fields });
+  const doc1Avg = doc1Fields.reduce((a, f) => a + f.confidence, 0) / doc1Fields.length;
+
+  // Give the seeded document a real page preview so the Lumen viewer shows the
+  // scan (with field-crop highlights), not a blank pane. Generated to match the
+  // crop coordinates above and stored through the real encrypted pipeline.
+  const formJpeg = renderAdmissionForm(doc1Fields.map((f) => ({ label: f.label, value: f.value, cropX: f.cropX, cropY: f.cropY, cropW: f.cropW, cropH: f.cropH })));
+  await savePagePreview(doc1.id, 0, formJpeg);
+  await saveOriginal(doc1.id, 'admission-aditi.jpg', formJpeg);
+  await prisma.document.update({ where: { id: doc1.id }, data: { pageCount: 1, mimeType: 'image/jpeg', overallConfidence: doc1Avg } });
 
   // ── Baseline Trust ledger — automated actions already taken (drives the
   //    "admin hours saved" counter honestly, and populates the audit timeline) ──
@@ -440,7 +461,7 @@ async function main() {
 
   const aiRows: any[] = [
     { schoolId, engine: 'KAIROS', action: 'Timetable solve', reason: 'CP feasibility + soft refine', confidence: 0.86, inputString: toJson({}), outputString: toJson({ placed: 174 }) },
-    { schoolId, engine: 'LUMEN', action: 'Document extraction', reason: '3 fields · 83% avg confidence', confidence: 0.83, inputString: toJson({ type: 'ADMISSION' }), outputString: toJson({ fields: 3 }) },
+    { schoolId, engine: 'LUMEN', action: 'Document extraction', reason: `${doc1Fields.length} fields · ${Math.round(doc1Avg * 100)}% avg confidence`, confidence: doc1Avg, inputString: toJson({ type: 'ADMISSION' }), outputString: toJson({ fields: doc1Fields.length }) },
   ];
   for (let i = 0; i < 18; i++) {
     const st = students[i];

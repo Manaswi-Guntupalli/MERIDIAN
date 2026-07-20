@@ -10,7 +10,6 @@ import timetable from './timetable.routes.js';
 import fees from './fees.routes.js';
 import documents from './documents.routes.js';
 import notifications from './notifications.routes.js';
-import predictions from './predictions.routes.js';
 import twin from './twin.routes.js';
 import emergency from './emergency.routes.js';
 import copilot from './copilot.routes.js';
@@ -18,6 +17,8 @@ import trust from './trust.routes.js';
 import reports from './reports.routes.js';
 import face from './face.routes.js';
 import presence from './presence/index.js';
+import school from './school.routes.js';
+import actions from './actions.routes.js';
 
 const api = Router();
 
@@ -32,7 +33,6 @@ api.use('/timetable', timetable);
 api.use('/fees', fees);
 api.use('/documents', documents);
 api.use('/notifications', notifications);
-api.use('/predictions', predictions);
 api.use('/twin', twin);
 api.use('/emergency', emergency);
 api.use('/copilot', copilot);
@@ -40,5 +40,7 @@ api.use('/trust', trust);
 api.use('/reports', reports);
 api.use('/face', face);
 api.use('/presence', presence);
+api.use('/school', school);
+api.use('/actions', actions);
 
 export default api;

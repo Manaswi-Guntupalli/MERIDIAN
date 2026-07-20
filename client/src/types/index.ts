@@ -65,24 +65,6 @@ export interface DashboardStats {
 
 export type Severity = 'INFO' | 'SUCCESS' | 'WARNING' | 'CRITICAL';
 
-export interface Alert {
-  id: string;
-  severity: Severity;
-  icon: string;
-  title: string;
-  detail: string;
-  recommendation?: string;
-  confidence?: number;
-  action?: { label: string; to: string };
-}
-
-export interface Insight {
-  severity: Severity;
-  title: string;
-  cause: string;
-  confidence: number;
-}
-
 export interface StudentRow {
   id: string;
   name: string;
@@ -346,20 +328,30 @@ export interface TwinBuilding {
   rooms: TwinRoom[];
 }
 
+export interface CopilotAction {
+  label: string;
+  to?: string;
+  /** Present when the action EXECUTES an operation via POST /actions/execute. */
+  execute?: { kind: string; params?: Record<string, unknown> };
+}
+
 export interface CopilotResult {
   answer: string;
   grounded: boolean;
   data?: unknown;
   source: 'openai' | 'rules';
   confidence: number;
+  intent?: string;
+  category?: string;
+  actions?: CopilotAction[];
 }
 
 // ─────────────────────────  PRESENCE  ────────────────────────
 export type ReaderDirection = 'ENTRY' | 'EXIT' | 'BOTH';
 export type CardStatus = 'ACTIVE' | 'DISABLED' | 'LOST' | 'BROKEN' | 'REPLACED';
-export type EventSource = 'RFID' | 'QR' | 'MANUAL' | 'CV';
+export type EventSource = 'RFID' | 'MANUAL' | 'CV' | 'FUSION';
 export type EventDirection = 'ENTRY' | 'EXIT' | 'REENTRY' | 'UNKNOWN';
-export type VerificationStatus = 'VERIFIED' | 'DUPLICATE' | 'UNKNOWN' | 'LATE' | 'REJECTED';
+export type VerificationStatus = 'VERIFIED' | 'DUPLICATE' | 'UNKNOWN' | 'LATE' | 'REJECTED' | 'PROXY';
 
 export interface RFIDReaderRow {
   id: string;

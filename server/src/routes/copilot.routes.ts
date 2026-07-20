@@ -36,15 +36,19 @@ router.post(
   }),
 );
 
-// Suggested prompts for the UI.
+// Suggested prompts for the UI — one per capability area so a first-time
+// judge immediately sees the breadth of what Copilot can answer.
 router.get('/suggestions', authenticate, (_req, res) => {
   res.json({
     suggestions: [
-      'Which teachers are overloaded?',
-      'Why did attendance drop this week?',
-      'Which classes are likely to need substitutes tomorrow?',
-      'Show unpaid fees above ₹10,000',
-      'Generate a PTA meeting summary',
+      'Which students are below 75% attendance?',
+      'Who has overdue fees above ₹10,000?',
+      'Which teachers are absent today?',
+      'Why did attendance drop?',
+      'What needs my attention today?',
+      'Show pending document reviews',
+      'Which students are at risk?',
+      'Give me today’s operational report',
     ],
   });
 });

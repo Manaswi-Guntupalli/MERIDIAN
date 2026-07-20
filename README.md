@@ -16,7 +16,7 @@ A complete, production-shaped full-stack application for the **Future-Ready Ops*
 | School ERP Automation | **Pulse** | Students, Staff, Classes, Attendance, Fees — event-sourced, realtime |
 | The Admin Dashboard | **Pulse · Command Center** | `/` — proactive anomaly-ranked alerts, ⌘K palette, Copilot |
 | Predictive Resource Allocation | **Foresight** | `/foresight` — absence & substitute-demand forecasts with SHAP-style drivers |
-| Automated Attendance (RFID / CV) | **Presence** | `/presence` — event-driven attendance platform: RFID, QR, manual and face recognition all flow through one pipeline; reader fleet + card lifecycle management, live feed, analytics, and a hardware-identical simulator, **zero raw images stored** |
+| Automated Attendance (RFID / CV) | **Presence** | `/presence` — event-driven attendance platform: RFID, manual and face recognition all flow through one pipeline; reader fleet + card lifecycle management, live feed, analytics, and a hardware-identical simulator, **zero raw images stored** |
 
 ### The 10 "wow" features
 1. **School Digital Twin** — live animated campus map (`/twin`), occupancy · teacher presence · attendance · power

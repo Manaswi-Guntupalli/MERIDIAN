@@ -8,6 +8,7 @@ import { STAFF_ADMIN } from '../../utils/constants.js';
 import { processScan } from '../../services/presence/engine.js';
 import { issueCard } from '../../services/presence/cards.js';
 import { assertOwnClass } from '../../services/presence/authz.js';
+import { assertNotLocked } from '../../services/emergency.js';
 import { auditLog } from '../../services/trustLedger.js';
 
 const router = Router();
@@ -16,7 +17,7 @@ const router = Router();
 // that POSTs here with `x-reader-key`; the Simulator UI and manual
 // corrections POST the same shape with a staff JWT instead. ──
 const scanSchema = z.object({
-  source: z.enum(['RFID', 'QR', 'MANUAL']),
+  source: z.enum(['RFID', 'MANUAL']),
   cardUid: z.string().optional(),
   studentId: z.string().optional(),
   readerId: z.string().optional(),
@@ -44,12 +45,15 @@ router.post(
       return res.json(result);
     }
 
-    // Staff path: MANUAL correction only (RFID/QR from a browser tab would
+    // Staff path: MANUAL correction only (RFID from a browser tab would
     // have no device key and must not be accepted as if it were hardware).
-    if (body.source !== 'MANUAL') throw badRequest('RFID/QR scans require a reader device key');
+    if (body.source !== 'MANUAL') throw badRequest('RFID scans require a reader device key');
     if (!body.studentId) throw badRequest('studentId is required for a manual mark');
 
     const schoolId = req.user!.schoolId;
+    // Manual attendance editing is frozen during an active emergency; the
+    // physical reader path above keeps sensing (it is not "editing").
+    await assertNotLocked(schoolId, 'Attendance');
     const student = await prisma.student.findFirst({ where: { id: body.studentId, schoolId }, include: { class: true } });
     if (!student) throw notFound('Student not found in your school');
 
@@ -63,6 +67,74 @@ router.post(
       notes: body.notes,
       createdBy: req.user!.sub,
     });
+    res.json(result);
+  }),
+);
+
+// ── Fusion ingest: RFID tap + live face descriptor in one request ──
+// The anti-proxy loop. The tap claims an identity; the 128-D descriptor the
+// gate camera computed must confirm it (1:1 verify against the cardholder's
+// enrolled templates). Mismatch → PROXY rejection + security alert.
+// An un-enrolled cardholder is "cannot verify", not "failed to verify":
+// by default that degrades honestly to a plain RFID scan, but a gate running
+// in strict mode (the kiosk's Gate mode) REJECTS it — there, attendance
+// requires BOTH the card and a verified face, no exceptions.
+const fusionSchema = z.object({
+  readerId: z.string().optional(),
+  cardUid: z.string(),
+  vector: z.array(z.number()).length(128),
+  direction: z.enum(['ENTRY', 'EXIT']).optional(),
+  strict: z.boolean().optional(),
+});
+router.post(
+  '/scan/fusion',
+  authenticateReaderOrStaff,
+  validateBody(fusionSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof fusionSchema>;
+    const schoolId = req.reader ? req.reader.schoolId : req.user!.schoolId;
+    const readerId = req.reader ? req.reader.id : body.readerId; // devices can never spoof another reader
+    if (!readerId) throw badRequest('readerId is required');
+
+    const { verifyFaceAgainst, matchFace } = await import('../../services/face.js');
+    const card = await prisma.rFIDCard.findFirst({ where: { schoolId, uid: body.cardUid } });
+
+    if (card) {
+      const verify = await verifyFaceAgainst(schoolId, 'STUDENT', card.studentId, body.vector);
+      if (verify.samples === 0 && !body.strict) {
+        // Default (device path): process as RFID and say so.
+        const result = await processScan({
+          schoolId, source: 'RFID', readerId, cardUid: body.cardUid, direction: body.direction,
+          createdBy: req.user?.sub, notes: 'Fusion requested; no face enrolled — processed as RFID',
+        });
+        return res.json({ ...result, fusion: { verified: null, reason: 'cardholder has no enrolled face' } });
+      }
+      const who = await matchFace(schoolId, body.vector);
+      const result = await processScan({
+        schoolId,
+        source: 'FUSION',
+        readerId,
+        cardUid: body.cardUid,
+        direction: body.direction,
+        createdBy: req.user?.sub,
+        confidence: verify.similarity,
+        fusion: {
+          similarity: verify.similarity,
+          threshold: verify.threshold,
+          samples: verify.samples,
+          required: body.strict ?? false,
+          matchedSubjectId: who.matched ? who.subjectId : null,
+          matchedName: who.matched ? who.name : null,
+        },
+      });
+      return res.json({
+        ...result,
+        fusion: { verified: result.status === 'VERIFIED' || result.status === 'LATE', similarity: verify.similarity, threshold: verify.threshold },
+      });
+    }
+
+    // Unknown card — the engine's normal UNKNOWN path (security review) applies.
+    const result = await processScan({ schoolId, source: 'RFID', readerId, cardUid: body.cardUid, createdBy: req.user?.sub, notes: 'Fusion scan — unknown card' });
     res.json(result);
   }),
 );

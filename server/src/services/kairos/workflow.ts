@@ -7,7 +7,7 @@ import { auditLog, logAI } from '../trustLedger.js';
 import { loadSolverInput } from './input.js';
 import { preValidate } from './validate.js';
 import { ScheduleState, solve, verifySolution } from './engine.js';
-import type { Assignment, HealthReport, Issue, SolveResult } from './types.js';
+import type { Assignment, ConflictAnalysis, HealthReport, Issue, SolveResult, UnplacedLesson } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Workflow: Draft → Review/Edit/Lock → Approve → Publish → (Rollback)
@@ -35,6 +35,58 @@ export interface GenerateOutcome {
   issues?: Issue[];
   timetableId?: string;
   result?: SolveResult;
+  conflictAnalysis?: ConflictAnalysis | null;
+}
+
+// ── Conflict analysis: "the smallest set of conflicting rules, and the
+//    cheapest way out". Cost ranks are declared planning constants keyed on
+//    the fix/blocker vocabulary the engine itself emits — deterministic,
+//    never model output. ──
+const COST_LABELS: Record<number, string> = { 1: 'one-field change', 2: 'staffing change', 3: 'infrastructure / hiring' };
+const BLOCKER_COST: Record<string, number> = {
+  NO_CONFIG: 1, NO_CURRICULUM: 1, CLASS_OVERFULL: 1, ROOM_CAPACITY: 1, LAB_TIGHT: 1,
+  NO_QUALIFIED_TEACHER: 2, TEACHER_OVERLOAD: 2,
+  LAB_CAPACITY: 3, STAFF_CAPACITY: 3,
+};
+const FIX_COST: Record<string, number> = {
+  'Raise a weekly cap': 1, 'Relax availability': 1,
+  'Add a qualification': 2, 'Share the load': 2,
+  'Free a lab period': 3,
+};
+
+export function analyzeConflicts(issues: Issue[], unplaced: UnplacedLesson[]): ConflictAnalysis | null {
+  const conflicts = new Set<string>();
+  const fixMap = new Map<string, { label: string; detail: string; costRank: number; addresses: number }>();
+
+  for (const i of issues.filter((x) => x.severity === 'BLOCKER')) {
+    conflicts.add(i.title);
+    if (i.fix) {
+      const cost = BLOCKER_COST[i.code] ?? 2;
+      const e = fixMap.get(i.fix) ?? { label: i.fix, detail: i.detail, costRank: cost, addresses: 0 };
+      e.addresses++;
+      fixMap.set(i.fix, e);
+    }
+  }
+  for (const u of unplaced) {
+    conflicts.add(u.cause);
+    for (const f of u.fixes) {
+      const cost = FIX_COST[f.label] ?? 2;
+      const e = fixMap.get(f.label) ?? { label: f.label, detail: f.detail, costRank: cost, addresses: 0 };
+      e.addresses++;
+      fixMap.set(f.label, e);
+    }
+  }
+  if (!conflicts.size) return null;
+
+  const fixes = [...fixMap.values()]
+    .sort((a, b) => a.costRank - b.costRank || b.addresses - a.addresses)
+    .map((f) => ({ ...f, costLabel: COST_LABELS[f.costRank] }));
+  const cheapest = fixes[0] ?? null;
+  return {
+    conflicts: [...conflicts],
+    fixes,
+    cheapestFix: cheapest ? { label: cheapest.label, detail: cheapest.detail, costLabel: cheapest.costLabel } : null,
+  };
 }
 
 /**
@@ -48,7 +100,9 @@ export async function generateDraft(
 ): Promise<GenerateOutcome> {
   const data = await loadSolverInput(schoolId);
   const issues = preValidate(data);
-  if (issues.some((i) => i.severity === 'BLOCKER')) return { ok: false, issues };
+  if (issues.some((i) => i.severity === 'BLOCKER')) {
+    return { ok: false, issues, conflictAnalysis: analyzeConflicts(issues, []) };
+  }
 
   let locked: Assignment[] = [];
   const existing = await getDraft(schoolId);
@@ -74,12 +128,14 @@ export async function generateDraft(
     throw new Error(`Kairos internal verification failed — draft rejected: ${problems[0]}`);
   }
 
+  const conflictAnalysis = analyzeConflicts([], result.unplaced);
   const health: HealthReport = {
     score: result.score,
     breakdown: result.breakdown,
     unplaced: result.unplaced,
     warnings: result.warnings,
     recommendations: result.recommendations,
+    conflictAnalysis,
   };
 
   const timetable = await prisma.$transaction(async (tx) => {
@@ -129,7 +185,7 @@ export async function generateDraft(
   await auditLog({ schoolId, actorId: actor.id, action: 'TIMETABLE_DRAFT_GENERATED', entity: 'Timetable', entityId: timetable.id, meta: { score: result.score } });
   emitToSchool(schoolId, 'timetable:draft', { id: timetable.id, score: result.score });
 
-  return { ok: true, timetableId: timetable.id, result };
+  return { ok: true, timetableId: timetable.id, result, conflictAnalysis };
 }
 
 /**

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, Send, Mic, Sparkles, User as UserIcon, ShieldCheck } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Bot, Send, Mic, Sparkles, User as UserIcon, ShieldCheck, ArrowUpRight, Zap } from 'lucide-react';
+import { api, apiError } from '@/lib/api';
 import { useVoice } from '@/hooks/useVoice';
 import PageHeader from '@/components/PageHeader';
 import { Card, Spinner, Badge } from '@/components/ui';
@@ -23,6 +23,16 @@ export default function Copilot() {
   const ask = useMutation({
     mutationFn: async (question: string) => (await api.post('/copilot/ask', { question })).data as CopilotResult,
     onSuccess: (res) => setMessages((m) => [...m, { role: 'assistant', text: res.answer, meta: res }]),
+  });
+
+  // Execute buttons COMPLETE the operation (reminders sent, cover assigned…)
+  // and the outcome comes back into the conversation — not just a nav link.
+  const execute = useMutation({
+    mutationFn: async (ex: { kind: string; params?: Record<string, unknown> }) =>
+      (await api.post('/actions/execute', { kind: ex.kind, ...(ex.params ?? {}) })).data as { summary: string; detail: string[] },
+    onSuccess: (res) =>
+      setMessages((m) => [...m, { role: 'assistant', text: `✓ ${res.summary}${res.detail?.length ? `\n${res.detail.slice(0, 6).map((d) => `• ${d}`).join('\n')}` : ''}` }]),
+    onError: (e) => setMessages((m) => [...m, { role: 'assistant', text: `✗ Action failed: ${apiError(e)}` }]),
   });
 
   const send = (q: string) => {
@@ -85,10 +95,31 @@ export default function Copilot() {
                 </div>
                 <div className={cn('max-w-[80%] rounded-2xl px-4 py-3 text-sm backdrop-blur-sm', m.role === 'user' ? 'border border-brand-500/20 bg-brand-500/15 text-slate-900' : 'border border-white/70 bg-white/75 text-slate-700 shadow-sm')}>
                   <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                  {m.meta?.actions && m.meta.actions.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {m.meta.actions.map((a) =>
+                        a.execute ? (
+                          <button
+                            key={a.label}
+                            onClick={() => execute.mutate(a.execute!)}
+                            disabled={execute.isPending}
+                            className="inline-flex items-center gap-1 rounded-lg border border-mint-500/40 bg-mint-400/15 px-2.5 py-1 text-[0.72rem] font-semibold text-mint-700 transition hover:bg-mint-400/25 disabled:opacity-50"
+                            title="Runs the operation now — audited in the Trust Ledger"
+                          >
+                            <Zap className="h-3 w-3" /> {a.label}
+                          </button>
+                        ) : (
+                          <Link key={(a.to ?? '') + a.label} to={a.to ?? '/'} className="inline-flex items-center gap-1 rounded-lg border border-brand-400/30 bg-brand-50/60 px-2.5 py-1 text-[0.72rem] font-semibold text-brand-700 transition hover:bg-brand-50">
+                            {a.label} <ArrowUpRight className="h-3 w-3" />
+                          </Link>
+                        ),
+                      )}
+                    </div>
+                  )}
                   {m.meta && (
                     <div className="mt-2.5 flex items-center gap-2 border-t border-line pt-2 text-[0.7rem]">
                       <ShieldCheck className="h-3.5 w-3.5 text-mint-400" />
-                      <span className="text-slate-500">Grounded · {m.meta.source === 'openai' ? 'OpenAI' : 'live rules'}</span>
+                      <span className="text-slate-500">Grounded · facts from {m.meta.source === 'openai' ? 'DB, AI-phrased' : 'live DB'}</span>
                       <span className={cn('ml-auto font-semibold', confColor(m.meta.confidence))}>{Math.round(m.meta.confidence * 100)}% conf.</span>
                     </div>
                   )}

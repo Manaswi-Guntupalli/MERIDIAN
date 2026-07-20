@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ScanFace, Users, ShieldCheck, Eye, CheckCircle2, UserPlus, Activity, AlertTriangle, Loader2, Camera } from 'lucide-react';
-import { api } from '@/lib/api';
+import { ScanFace, Users, ShieldCheck, Eye, CheckCircle2, UserPlus, Activity, AlertTriangle, Loader2, Camera, Nfc, Radio } from 'lucide-react';
+import { api, apiError } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import { useWebcam } from '@/hooks/useWebcam';
+import { useRfidReader } from '@/hooks/useRfidReader';
+import type { RFIDCardRow, RFIDReaderRow } from '@/types';
 import { loadFaceModels, detectAll, detectLandmarksOnly, eyeAspectRatio, BlinkDetector } from '@/lib/face';
 import PageHeader from '@/components/PageHeader';
 import { Card, Badge, StatTile, LoadingScreen, EmptyState, Meter } from '@/components/ui';
@@ -50,7 +52,17 @@ interface LiveFace {
   confidence: number;
   subjectId?: string;
 }
-interface LogEntry { name: string; confidence: number; status: string; at: string }
+interface LogEntry { name: string; confidence: number; status: string; at: string; note?: string }
+
+const LOG_BADGE: Record<string, { label: string; severity: 'SUCCESS' | 'WARNING' | 'CRITICAL' | 'INFO' }> = {
+  MARKED: { label: 'Present', severity: 'SUCCESS' },
+  ALREADY: { label: 'Already', severity: 'INFO' },
+  VERIFIED: { label: 'Present · fused', severity: 'SUCCESS' },
+  LATE: { label: 'Late · fused', severity: 'WARNING' },
+  DUPLICATE: { label: 'Duplicate', severity: 'INFO' },
+  PROXY: { label: 'Proxy blocked', severity: 'CRITICAL' },
+  REJECTED: { label: 'Rejected', severity: 'CRITICAL' },
+};
 
 function LiveKiosk() {
   const qc = useQueryClient();
@@ -63,9 +75,81 @@ function LiveKiosk() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [dims, setDims] = useState({ w: 640, h: 480 });
 
+  // ── Gate mode: attendance requires the RFID tap AND the live face to
+  //    agree. Face-only auto-marking is disabled; the tap is the trigger. ──
+  const [mode, setMode] = useState<'FACE' | 'GATE'>('FACE');
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const [gateReaderId, setGateReaderId] = useState('');
+  const [gateCardUid, setGateCardUid] = useState('');
+  const [tapBusy, setTapBusy] = useState(false);
+  // Latest live descriptor of the PRIMARY (largest) face — what a tap fuses with.
+  const latestFaceRef = useRef<{ descriptor: number[]; at: number } | null>(null);
+
+  const readers = useQuery({
+    queryKey: ['presence-readers'],
+    queryFn: async () => (await api.get('/presence/readers')).data.readers as RFIDReaderRow[],
+    enabled: mode === 'GATE',
+  });
+  const cards = useQuery({
+    queryKey: ['presence-cards', 'ACTIVE'],
+    queryFn: async () => (await api.get('/presence/cards', { params: { status: 'ACTIVE' } })).data.cards as RFIDCardRow[],
+    enabled: mode === 'GATE',
+  });
+  useEffect(() => {
+    if (mode === 'GATE' && !gateReaderId && readers.data?.length) setGateReaderId(readers.data[0].id);
+  }, [mode, readers.data, gateReaderId]);
+
   const runFlag = useRef(false);
   const blinkRef = useRef(new BlinkDetector());
   const markedRef = useRef<Map<string, number>>(new Map());
+
+  /** The gate tap: card UID + the face currently in frame → one fusion scan.
+   *  The server verifies the live descriptor 1:1 against the CARDHOLDER's
+   *  enrolled templates — a mismatch is blocked as PROXY, an un-enrolled
+   *  cardholder is rejected (strict), and nothing is marked without both. */
+  const fusionTap = async (uid: string) => {
+    if (!uid) return;
+    const face = latestFaceRef.current;
+    if (!running || !face || Date.now() - face.at > 2500) {
+      pushToast({ title: 'No face in frame', body: 'The student must be looking at the camera when they tap.', severity: 'WARNING' });
+      return;
+    }
+    if (!blinkRef.current.armed) {
+      pushToast({ title: 'Liveness not verified', body: 'Ask them to blink — photos and videos are rejected.', severity: 'WARNING' });
+      return;
+    }
+    setTapBusy(true);
+    try {
+      const { data } = await api.post('/presence/scan/fusion', {
+        readerId: gateReaderId || undefined,
+        cardUid: uid,
+        vector: face.descriptor,
+        strict: true,
+      });
+      const name = data.student?.name ?? 'Unknown card';
+      setLog((l) => [{ name, confidence: data.fusion?.similarity ?? 0, status: data.status, at: new Date().toISOString(), note: data.reason }, ...l].slice(0, 15));
+      if (data.status === 'VERIFIED' || data.status === 'LATE') {
+        pushToast({ title: `${name} ✓ card + face`, body: `Marked ${data.status === 'LATE' ? 'late' : 'present'} · face verified ${Math.round((data.fusion?.similarity ?? 0) * 100)}%`, severity: data.status === 'LATE' ? 'WARNING' : 'SUCCESS' });
+      } else if (data.status === 'PROXY') {
+        pushToast({ title: 'Proxy attempt blocked', body: data.reason, severity: 'CRITICAL' });
+      } else {
+        pushToast({ title: LOG_BADGE[data.status]?.label ?? data.status, body: data.reason ?? '', severity: data.status === 'DUPLICATE' ? 'INFO' : 'WARNING' });
+      }
+      qc.invalidateQueries({ queryKey: ['presence-events'] });
+      qc.invalidateQueries({ queryKey: ['face', 'status'] });
+    } catch (e) {
+      pushToast({ title: 'Gate scan failed', body: apiError(e), severity: 'CRITICAL' });
+    } finally {
+      setTapBusy(false);
+    }
+  };
+
+  // Physical USB/serial reader: a real tag tap fires the fusion scan directly.
+  const rfid = useRfidReader((tag) => {
+    setGateCardUid(tag);
+    void fusionTap(tag);
+  });
 
   // Enrollment coverage only — biometric templates are NEVER sent to the
   // browser. Recognition happens server-side via /face/recognize-batch.
@@ -120,6 +204,10 @@ function LiveKiosk() {
         if (t - lastRecog > 400) {
           lastRecog = t;
           const detections = await detectAll(video);
+          // Keep the primary (largest) face's live descriptor for Gate mode —
+          // this is what an RFID tap gets fused with.
+          const primaryDet = [...detections].sort((a, b) => b.box.width - a.box.width)[0];
+          latestFaceRef.current = primaryDet ? { descriptor: Array.from(primaryDet.descriptor), at: Date.now() } : null;
           if (detections.length) {
             try {
               const { data } = await api.post('/face/recognize-batch', {
@@ -127,7 +215,9 @@ function LiveKiosk() {
               });
               const out: LiveFace[] = detections.slice(0, 12).map((d, i) => {
                 const m = data.results[i];
-                if (m?.matched && blinkRef.current.armed) {
+                // Face-only auto-marking is OFF in Gate mode: there, the card
+                // tap + face verification together are the only way in.
+                if (m?.matched && blinkRef.current.armed && modeRef.current === 'FACE') {
                   const lastMark = markedRef.current.get(m.subjectId) ?? 0;
                   if (Date.now() - lastMark > 25000) {
                     markedRef.current.set(m.subjectId, Date.now());
@@ -164,6 +254,28 @@ function LiveKiosk() {
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2">
         <Card className="!p-3">
+          {/* Mode rail: face-only kiosk vs the anti-proxy gate */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 px-1">
+            <div className="inline-flex rounded-lg border border-line p-0.5">
+              {(['FACE', 'GATE'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={cn('flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold transition', mode === m ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-800')}
+                >
+                  {m === 'FACE' ? <ScanFace className="h-3.5 w-3.5" /> : <Nfc className="h-3.5 w-3.5" />}
+                  {m === 'FACE' ? 'Face kiosk' : 'Gate mode · RFID + Face'}
+                </button>
+              ))}
+            </div>
+            <span className="text-[0.7rem] leading-snug text-slate-500">
+              {mode === 'FACE'
+                ? 'Recognised + liveness-verified faces are marked automatically.'
+                : 'Anti-proxy: the card claims an identity, the live face must confirm it — nobody is marked without both.'}
+            </span>
+          </div>
+
           <div className="relative overflow-hidden rounded-xl bg-slate-900" style={{ aspectRatio: '4/3' }}>
             <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted playsInline />
 
@@ -239,6 +351,48 @@ function LiveKiosk() {
               </div>
             )}
           </div>
+          {/* Gate controls: the tap that triggers fusion */}
+          {mode === 'GATE' && (
+            <div className="mt-3 rounded-xl border border-line bg-ink-800/40 p-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-[0.68rem] font-medium text-slate-500">Gate (reader)</span>
+                  <select value={gateReaderId} onChange={(e) => setGateReaderId(e.target.value)} className="input w-full !py-1.5 text-xs">
+                    {readers.data?.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.location}{r.online ? '' : ' (offline)'}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[0.68rem] font-medium text-slate-500">Student card</span>
+                  <select value={gateCardUid} onChange={(e) => setGateCardUid(e.target.value)} className="input w-full !py-1.5 text-xs">
+                    <option value="">Select a card…</option>
+                    {cards.data?.map((c) => <option key={c.id} value={c.uid}>{c.student?.name} · {c.uid}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => fusionTap(gateCardUid)}
+                  disabled={!running || !gateCardUid || tapBusy}
+                  className="btn-primary !py-2 text-xs"
+                  title="The tap: the selected card + whoever is in front of the camera right now"
+                >
+                  <Nfc className="h-3.5 w-3.5" /> {tapBusy ? 'Verifying…' : 'Tap card at gate'}
+                </button>
+                <input ref={rfid.inputRef} onKeyDown={rfid.handleKeyDown} className="sr-only" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => rfid.setArmed((a) => !a)}
+                  className={cn('btn-ghost !py-2 text-xs', rfid.armed && 'bg-brand-50 text-brand-700')}
+                >
+                  <Radio className="h-3.5 w-3.5" /> {rfid.armed ? 'Listening for physical tags…' : 'Use a USB/serial reader'}
+                </button>
+                <span className="text-[0.68rem] leading-snug text-slate-500">
+                  A physical tag tap fires the same verification instantly.
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="mt-3 flex items-center justify-between px-1 text-xs text-slate-500">
             <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-mint-400" /> Raw frames discarded in-memory · only vectors compared</span>
             <span>{enrolledCount} enrolled</span>
@@ -254,20 +408,32 @@ function LiveKiosk() {
         <div className="max-h-[28rem] space-y-2 overflow-y-auto p-3 no-scrollbar">
           <AnimatePresence initial={false}>
             {log.length === 0 ? (
-              <div className="py-16 text-center text-sm text-slate-500">Step in front of the camera and blink to mark attendance.</div>
-            ) : log.map((e, i) => (
-              <motion.div key={e.at + i} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3 rounded-xl border border-line bg-ink-800/60 p-3">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-xs font-bold text-white">{initials(e.name)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-slate-900">{e.name}</div>
-                  <div className="text-xs text-slate-500">{timeAgo(e.at)}</div>
-                </div>
-                <div className="flex flex-col items-end gap-0.5">
-                  <Badge severity={e.status === 'MARKED' ? 'SUCCESS' : 'INFO'}>{e.status === 'MARKED' ? 'Present' : 'Already'}</Badge>
-                  <span className={cn('tnum text-[0.6rem]', confColor(e.confidence))}>{Math.round(e.confidence * 100)}%</span>
-                </div>
-              </motion.div>
-            ))}
+              <div className="py-16 text-center text-sm text-slate-500">
+                {mode === 'GATE'
+                  ? 'Select a card and tap — the face in frame must match the cardholder.'
+                  : 'Step in front of the camera and blink to mark attendance.'}
+              </div>
+            ) : log.map((e, i) => {
+              const badge = LOG_BADGE[e.status] ?? { label: e.status, severity: 'INFO' as const };
+              return (
+                <motion.div key={e.at + i} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="rounded-xl border border-line bg-ink-800/60 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-600 text-xs font-bold text-white">{initials(e.name)}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-slate-900">{e.name}</div>
+                      <div className="text-xs text-slate-500">{timeAgo(e.at)}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <Badge severity={badge.severity}>{badge.label}</Badge>
+                      {e.confidence > 0 && <span className={cn('tnum text-[0.6rem]', confColor(e.confidence))}>{Math.round(e.confidence * 100)}%</span>}
+                    </div>
+                  </div>
+                  {e.note && (badge.severity === 'CRITICAL' || badge.severity === 'WARNING') && (
+                    <div className="mt-1.5 border-t border-line pt-1.5 text-[0.68rem] leading-snug text-slate-500">{e.note}</div>
+                  )}
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
       </Card>

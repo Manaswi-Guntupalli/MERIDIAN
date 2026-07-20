@@ -1,0 +1,14 @@
+# Meridian Intelligence Engine — Python 3.11+ (tested on 3.14)
+# Model choice note: with the current data volume (a seeded school, ~10 days
+# of attendance history) interpretable statistical models + IsolationForest
+# are the defensible choice. LightGBM/Prophet/SHAP are deliberately omitted:
+# they add heavy native dependencies without improving honesty at this scale,
+# and the spec's own rule is "choose models based on the problem".
+fastapi>=0.115
+uvicorn>=0.32
+pydantic>=2.9
+pandas>=2.2
+numpy>=2.1
+scikit-learn>=1.5
+scipy>=1.14
+joblib>=1.4

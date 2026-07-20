@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import CommandPalette from './CommandPalette';
 import EmergencyBanner from './EmergencyBanner';
+import AmbientBackground from './AmbientBackground';
 import Toaster from '@/components/Toaster';
 import HelpWidget from '@/components/HelpWidget';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -36,18 +37,23 @@ export default function AppLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onMenu={() => setMobileNav(true)} />
         <EmergencyBanner />
-        <main className="no-scrollbar flex-1 overflow-y-auto px-5 py-8 lg:px-9 lg:py-10">
-          {/* Page transition: a short, restrained fade-rise. */}
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
-            className="mx-auto max-w-[1240px]"
-          >
-            <Outlet />
-          </motion.div>
-        </main>
+        {/* The ambient wash sits behind the scroll container, not inside it,
+            so the blobs stay in place while the page scrolls. */}
+        <div className="relative flex-1 overflow-hidden">
+          <AmbientBackground />
+          <main className="no-scrollbar relative z-10 h-full overflow-y-auto px-5 py-8 lg:px-9 lg:py-10">
+            {/* Page transition: a short, restrained fade-rise. */}
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.26, ease: [0.16, 1, 0.3, 1] }}
+              className="mx-auto max-w-[1240px]"
+            >
+              <Outlet />
+            </motion.div>
+          </main>
+        </div>
       </div>
 
       <CommandPalette />

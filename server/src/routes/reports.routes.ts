@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { asyncHandler } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { chatText } from '../lib/openai.js';
-import { computePredictions } from '../services/foresight.js';
+import { getDashboardIntelligence } from '../services/intelligence.js';
 import { logAI } from '../services/trustLedger.js';
 import { STAFF_ADMIN } from '../utils/constants.js';
 
@@ -30,7 +30,24 @@ router.get(
     const outstanding = fees.reduce((a, f) => a + (f.amount - f.paid), 0);
     const collected = fees.reduce((a, f) => a + f.paid, 0);
     const overloaded = teachers.filter((tt) => tt.weeklyHours >= tt.maxHours - 1).map((tt) => tt.user.name);
-    const { preds } = await computePredictions(schoolId);
+
+    // Forecast highlights come from the Python engine — intervals, models, and
+    // an explicit offline state instead of locally invented numbers.
+    const intel = await getDashboardIntelligence(schoolId);
+    const preds: { label: string; note: string }[] = [];
+    if (intel.engine === 'online' && intel.payload) {
+      const f = (intel.payload as any).forecasts ?? {};
+      const fmtPct = (v: number) => `${Math.round(v * 100)}%`;
+      if (f.attendanceTomorrow?.available)
+        preds.push({
+          label: `Attendance tomorrow ≈ ${fmtPct(f.attendanceTomorrow.prediction)}${f.attendanceTomorrow.interval80 ? ` (80% interval ${fmtPct(f.attendanceTomorrow.interval80[0])}–${fmtPct(f.attendanceTomorrow.interval80[1])})` : ''}`,
+          note: f.attendanceTomorrow.model ?? 'engine forecast',
+        });
+      if (f.substituteDemand?.available)
+        preds.push({ label: `Substitute demand ≈ ${f.substituteDemand.prediction}/day`, note: f.substituteDemand.model ?? 'engine forecast' });
+      if (f.feeCollections?.available)
+        preds.push({ label: `Expected fee recovery ≈ ₹${Math.round(f.feeCollections.prediction).toLocaleString('en-IN')}`, note: f.feeCollections.model ?? 'engine forecast' });
+    }
 
     const metrics = {
       students,
@@ -67,7 +84,7 @@ router.get(
       schoolId,
       engine: 'COPILOT',
       action: 'Generated operations report',
-      reason: 'Assembled from live metrics + Foresight predictions',
+      reason: 'Assembled from live metrics + intelligence-engine forecasts',
       confidence: 0.85,
       output: { metrics },
       actorId: req.user!.sub,
@@ -78,7 +95,8 @@ router.get(
       generatedAt: new Date().toISOString(),
       title: 'Operations Summary',
       metrics,
-      predictions: preds.map((p) => ({ label: p.label, confidence: p.confidence })),
+      predictions: preds,
+      engineOnline: intel.engine === 'online',
       narrative,
       recommendations,
     });

@@ -84,6 +84,9 @@ router.post(
 );
 
 // Draft reminders to all overdue accounts (Command Center action).
+// Each reminder is addressed ONLY to the people it concerns — the student's
+// own account and their linked guardians. A fee notice as a school-wide
+// broadcast (the old behaviour) leaked every family's dues to every user.
 router.post(
   '/remind',
   authorize(...STAFF_ADMIN),
@@ -91,18 +94,39 @@ router.post(
     const schoolId = req.user!.schoolId;
     const overdue = await prisma.fee.findMany({
       where: { schoolId, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
-      include: { student: true },
+      include: { student: { include: { parents: { include: { parent: true } } } } },
     });
+
+    let recipients = 0;
     for (const f of overdue.slice(0, 25)) {
-      await notify({
-        schoolId,
-        title: 'Fee reminder drafted',
-        body: `₹${Math.round(f.amount - f.paid).toLocaleString('en-IN')} due for ${f.student.name} (${f.title})`,
-        severity: 'WARNING',
-        category: 'FEES',
-      });
+      const due = Math.round(f.amount - f.paid).toLocaleString('en-IN');
+      const targets = new Set<string>();
+      if (f.student.userId) targets.add(f.student.userId);
+      for (const link of f.student.parents) targets.add(link.parent.userId);
+      for (const userId of targets) {
+        await notify({
+          schoolId,
+          userId,
+          title: 'Fee reminder',
+          body: `₹${due} is due for ${f.student.name} — ${f.title} (due ${f.dueDate}).`,
+          severity: 'WARNING',
+          category: 'FEES',
+        });
+        recipients++;
+      }
     }
-    res.json({ drafted: Math.min(25, overdue.length) });
+
+    const drafted = Math.min(25, overdue.length);
+    // The drafting admin gets one private summary, not a stream of broadcasts.
+    await notify({
+      schoolId,
+      userId: req.user!.sub,
+      title: 'Fee reminders sent',
+      body: `${drafted} reminder(s) delivered to ${recipients} student/guardian account(s).`,
+      severity: 'SUCCESS',
+      category: 'FEES',
+    });
+    res.json({ drafted, recipients });
   }),
 );
 

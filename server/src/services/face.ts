@@ -62,6 +62,34 @@ export async function matchFace(schoolId: string, query: number[]): Promise<Matc
   };
 }
 
+/**
+ * 1:1 verification — the fusion half of anti-proxy attendance. Instead of
+ * asking "who is this face?" (1:N identification), this asks "is this face
+ * the specific person the RFID card claims?" and returns the best cosine
+ * similarity against ONLY that subject's enrolled templates. The caller
+ * compares against MATCH_THRESHOLD; zero samples means "cannot verify",
+ * which is different from "failed to verify" — callers must not treat an
+ * un-enrolled student as a proxy suspect.
+ */
+export async function verifyFaceAgainst(
+  schoolId: string,
+  subjectType: 'STUDENT' | 'TEACHER',
+  subjectId: string,
+  query: number[],
+): Promise<{ similarity: number; samples: number; threshold: number }> {
+  const rows = await prisma.faceEmbedding.findMany({ where: { schoolId, subjectType, subjectId } });
+  let best = 0;
+  let samples = 0;
+  for (const r of rows) {
+    const vec = fromJson<number[]>(r.vectorString, []);
+    if (vec.length !== query.length) continue;
+    samples++;
+    const sim = cosine(query, vec);
+    if (sim > best) best = sim;
+  }
+  return { similarity: Math.round(best * 1000) / 1000, samples, threshold: MATCH_THRESHOLD };
+}
+
 export interface EnrollInput {
   schoolId: string;
   subjectType: 'STUDENT' | 'TEACHER';

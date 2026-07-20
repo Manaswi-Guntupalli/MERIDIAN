@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarClock, History, LayoutDashboard } from 'lucide-react';
+import { CalendarClock, History, LayoutDashboard, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/store/auth';
+import { useSchoolStatus } from '@/hooks/useSchoolStatus';
 import PageHeader from '@/components/PageHeader';
 import { Badge, LoadingScreen } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,7 @@ export default function Kairos() {
   const isPrincipal = ['SUPER_ADMIN', 'PRINCIPAL'].includes(user.role);
   const [tab, setTab] = useState<Tab>(isAdmin ? 'overview' : 'timetable');
   const [ttView, setTtView] = useState<'draft' | 'live'>('live');
+  const school = useSchoolStatus();
 
   const overview = useQuery({
     queryKey: ['kairos-overview'],
@@ -53,6 +55,20 @@ export default function Kairos() {
           ) : undefined
         }
       />
+
+      {/* Live "where are we in the day" indicator, computed from school hours */}
+      {school.phase !== 'LOADING' && (
+        <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-line bg-ink-800/40 px-3.5 py-2 text-xs text-slate-500">
+          <Clock className={cn('h-3.5 w-3.5', school.inSession ? 'text-mint-500' : 'text-slate-400')} />
+          {school.inSession && school.currentPeriod ? (
+            <span><b className="text-slate-700">{school.currentPeriod} in progress</b> · {school.detail.split(' · ')[1] ?? school.detail}</span>
+          ) : school.inSession ? (
+            <span className="text-slate-600">{school.detail}</span>
+          ) : (
+            <span><b className="text-slate-700">{school.label}.</b> {school.detail}</span>
+          )}
+        </div>
+      )}
 
       {/* Three pages, one quiet tab rail */}
       <div className="mb-6 flex gap-1 border-b border-line">

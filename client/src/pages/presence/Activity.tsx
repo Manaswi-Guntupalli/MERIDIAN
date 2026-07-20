@@ -6,7 +6,7 @@ import { Segmented } from './shared';
 type View = 'live' | 'history';
 
 const CAPTIONS: Record<View, string> = {
-  live: 'Every scan from every source — RFID, QR, manual and face — the moment it happens. Use manual correction to fix a mistake.',
+  live: 'Every scan from every source — RFID, manual and face — the moment it happens. Use manual correction to fix a mistake.',
   history: 'One student’s complete timeline: entries, exits, late arrivals and manual overrides.',
 };
 

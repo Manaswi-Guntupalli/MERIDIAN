@@ -125,24 +125,54 @@ async function commitStudent(
     notes.push(`No admission number on the form — assigned ${admissionNo}.`);
   }
 
-  // Resolve "8" + "B" (or "8B") to a real class, if the school has it.
-  const grade = Number((get(fields, 'className').match(/\d{1,2}/) ?? [])[0]);
-  const section = (get(fields, 'section') || (get(fields, 'className').match(/[A-Za-z]$/) ?? [])[0] || '')
-    .toUpperCase();
+  // Resolve the form's class to a real class in this school. A form naming a
+  // class the school doesn't have (e.g. "9C" when only 9A and 9B exist) stops
+  // the commit with a message listing the valid sections — the clerk corrects
+  // the class field and re-commits. We never silently file the student as
+  // unassigned when a class WAS written, nor invent a phantom class.
+  const classText = get(fields, 'className');
+  const grade = Number((classText.match(/\d{1,2}/) ?? [])[0]);
+  const section = (get(fields, 'section') || (classText.match(/[A-Za-z]$/) ?? [])[0] || '').toUpperCase();
   let classId: string | undefined;
-  if (!Number.isNaN(grade) && grade >= 1) {
-    const cls = await tx.class.findFirst({
-      where: { schoolId, grade, ...(section ? { section } : {}) },
-      select: { id: true, name: true },
+
+  if (classText && !Number.isNaN(grade) && grade >= 1) {
+    const gradeClasses = await tx.class.findMany({
+      where: { schoolId, grade },
+      select: { id: true, name: true, section: true },
+      orderBy: { section: 'asc' },
     });
-    if (cls) {
-      classId = cls.id;
-      notes.push(`Assigned to class ${cls.name}.`);
-    } else {
-      notes.push(`No class ${grade}${section} exists yet — student left unassigned.`);
+    if (gradeClasses.length === 0) {
+      const all = await tx.class.findMany({ where: { schoolId }, select: { name: true }, orderBy: { name: 'asc' } });
+      throw badRequest(
+        `The form lists class "${classText}", but this school has no grade ${grade}. ` +
+          `Existing classes are: ${all.map((c) => c.name).join(', ') || 'none'}. Correct the class field before committing.`,
+      );
     }
+    if (section) {
+      const match = gradeClasses.find((c) => c.section.toUpperCase() === section);
+      if (!match) {
+        const sections = gradeClasses.map((c) => c.section).join(', ');
+        throw badRequest(
+          `The form lists class "${classText}", but grade ${grade} only has section ${sections} ` +
+            `(${gradeClasses.map((c) => c.name).join(', ')}). Change the class field to a valid section before committing.`,
+        );
+      }
+      classId = match.id;
+      notes.push(`Assigned to class ${match.name}.`);
+    } else if (gradeClasses.length === 1) {
+      classId = gradeClasses[0].id;
+      notes.push(`Assigned to class ${gradeClasses[0].name}.`);
+    } else {
+      const sections = gradeClasses.map((c) => c.section).join(', ');
+      throw badRequest(
+        `The form lists grade ${grade} but no section, and grade ${grade} has sections ${sections}. ` +
+          `Specify which section on the class field before committing.`,
+      );
+    }
+  } else if (classText) {
+    throw badRequest(`Could not read a valid class from "${classText}". Enter it as e.g. "8A" before committing.`);
   } else {
-    notes.push('Class could not be determined — student left unassigned.');
+    notes.push('No class on the form — student left unassigned.');
   }
 
   // Roll number: next free within the class (or school-wide when unassigned).

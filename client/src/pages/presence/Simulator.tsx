@@ -250,6 +250,12 @@ export default function PresenceSimulator() {
             onClick={() => run.mutate({ path: 'disabled-card', label: 'Disabled card', body: { cardId, readerId: readerId || undefined } })}
           />
         </div>
+
+        <p className="mt-4 rounded-xl border border-dashed border-line px-3.5 py-2.5 text-[0.72rem] leading-relaxed text-slate-500">
+          <b className="text-slate-700">Looking for anti-proxy (RFID + face) attendance?</b> That runs only against a real camera — open{' '}
+          <b className="text-slate-700">Face Recognition → Live Kiosk → Gate mode</b>: a card tap plus the live face must both agree before
+          anyone is marked present.
+        </p>
       </Card>
 
       <Card className="!p-0">

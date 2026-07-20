@@ -56,10 +56,13 @@ export default function Reports() {
         <Card>
           <div className="mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-400" /><h2 className="font-bold text-slate-900">Forecast highlights</h2></div>
           <div className="space-y-3">
+            {data.predictions.length === 0 && (
+              <div className="text-xs text-slate-500">Intelligence engine offline — forecasts are computed there, never invented here.</div>
+            )}
             {data.predictions.map((p: any, i: number) => (
               <div key={i} className="rounded-xl border border-line bg-ink-800/60 p-3">
                 <div className="text-sm text-slate-700">{p.label}</div>
-                <div className="mt-1 text-[0.65rem] font-semibold text-slate-500">{Math.round(p.confidence * 100)}% confidence</div>
+                <div className="mt-1 text-[0.65rem] font-semibold text-slate-500">{p.note}</div>
               </div>
             ))}
           </div>

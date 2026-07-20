@@ -31,7 +31,7 @@ export default function PresenceSettingsPage() {
   return (
     <Card className="max-w-lg">
       <h2 className="mb-1 font-bold text-slate-900">Attendance policy</h2>
-      <p className="mb-5 text-sm text-slate-500">Governs every source — RFID, QR, manual and face recognition read the same policy.</p>
+      <p className="mb-5 text-sm text-slate-500">Governs every source — RFID, manual and face recognition read the same policy.</p>
       <form
         onSubmit={(e) => { e.preventDefault(); save.mutate(form); }}
         className="space-y-4"

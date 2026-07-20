@@ -329,14 +329,14 @@ Winning upgrade:
 
 Purpose:
 
-- Automate attendance from any input source — RFID, QR, manual, on-device
+- Automate attendance from any input source — RFID, manual, on-device
   face recognition — through one backend pipeline, so attendance is the
   *event* that drives the rest of the ERP, not a feature bolted onto it.
 
 Current architecture:
 
 ```
-RFID reader / Simulator / QR kiosk / Manual mark / Face kiosk
+RFID reader / Simulator / Manual mark / Face kiosk
         │  (every source normalizes to the same ScanInput)
         ▼
 POST /api/presence/scan   ← the one adapter seam — a real reader device
@@ -344,7 +344,7 @@ POST /api/presence/scan   ← the one adapter seam — a real reader device
                              instead of a user JWT
         ▼
 services/presence/engine.ts  processScan()
-  reader exists → reader online (RFID/QR only) → card active → card
+  reader exists → reader online (RFID only) → card active → card
   assigned → student active → duplicate-window check → late + direction
   policy  — all inside one prisma.$transaction:
      AttendanceEvent created (append-only raw scan log)

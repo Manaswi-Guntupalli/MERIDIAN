@@ -134,7 +134,8 @@ export async function readerUsage(schoolId: string, days = 14) {
     if (e.verificationStatus === 'VERIFIED' || e.verificationStatus === 'LATE') row.verified++;
     else if (e.verificationStatus === 'DUPLICATE') row.duplicate++;
     else if (e.verificationStatus === 'UNKNOWN') row.unknown++;
-    else if (e.verificationStatus === 'REJECTED') row.rejected++;
+    // PROXY (fusion mismatch) counts with rejections — the tap was blocked.
+    else if (e.verificationStatus === 'REJECTED' || e.verificationStatus === 'PROXY') row.rejected++;
   }
   return [...byReader.values()].sort((a, b) => b.total - a.total);
 }

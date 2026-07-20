@@ -59,6 +59,7 @@ export const EVENT_BADGE: Record<VerificationStatus, { label: string; severity: 
   DUPLICATE: { label: 'Duplicate', severity: 'INFO' },
   UNKNOWN: { label: 'Needs review', severity: 'CRITICAL' },
   REJECTED: { label: 'Rejected', severity: 'CRITICAL' },
+  PROXY: { label: 'Proxy blocked', severity: 'CRITICAL' },
 };
 
 export const CARD_BADGE: Record<CardStatus, { label: string; severity: 'SUCCESS' | 'WARNING' | 'CRITICAL' | 'INFO' }> = {

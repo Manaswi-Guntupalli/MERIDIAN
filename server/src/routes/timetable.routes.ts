@@ -5,6 +5,7 @@ import { asyncHandler, badRequest, notFound } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { validateBody } from '../utils/validate.js';
 import { fromJson, toJson } from '../lib/json.js';
+import { assertNotLocked } from '../services/emergency.js';
 import { ROLES, STAFF, STAFF_ADMIN } from '../utils/constants.js';
 import {
   applySubstitutes,
@@ -33,6 +34,16 @@ import {
 
 const router = Router();
 router.use(authenticate);
+
+// Scheduling changes are paused during an active emergency — reads still flow,
+// so everyone can see the current timetable, but no mutation lands until the
+// incident is resolved. The published timetable is never deleted.
+router.use(
+  asyncHandler(async (req, _res, next) => {
+    if (req.method !== 'GET') await assertNotLocked(req.user!.schoolId, 'Timetable');
+    next();
+  }),
+);
 
 const PRINCIPALS = [ROLES.PRINCIPAL, ROLES.SUPER_ADMIN];
 
@@ -375,12 +386,13 @@ router.post(
       { keepLocks: (req.body as any).keepLocks },
     );
     if (!outcome.ok) {
-      res.status(422).json({ ok: false, issues: outcome.issues });
+      res.status(422).json({ ok: false, issues: outcome.issues, conflictAnalysis: outcome.conflictAnalysis ?? null });
       return;
     }
     res.json({
       ok: true,
       timetable: await fullTimetable(schoolId, outcome.timetableId!),
+      conflictAnalysis: outcome.conflictAnalysis ?? null,
     });
   }),
 );

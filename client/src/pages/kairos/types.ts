@@ -33,12 +33,19 @@ export interface KUnplaced {
   fixes: { label: string; detail: string }[];
 }
 
+export interface KConflictAnalysis {
+  conflicts: string[];
+  fixes: { label: string; detail: string; costRank: number; costLabel: string; addresses: number }[];
+  cheapestFix: { label: string; detail: string; costLabel: string } | null;
+}
+
 export interface KHealth {
   score: number;
   breakdown: { placement: number; balance: number; preferences: number };
   unplaced: KUnplaced[];
   warnings: string[];
   recommendations: string[];
+  conflictAnalysis?: KConflictAnalysis | null;
 }
 
 export interface KTimetableMeta {

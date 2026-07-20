@@ -125,6 +125,17 @@ export interface SolveResult {
   stats: { placed: number; total: number; restarts: number };
 }
 
+/** The "why it broke, and the cheapest way out" summary. Cost ranks are
+ *  DECLARED planning constants (1 = a one-field change, 2 = a staffing
+ *  change, 3 = infrastructure/hiring) — deterministic and auditable. */
+export interface ConflictAnalysis {
+  /** The smallest set of distinct causes blocking a full schedule. */
+  conflicts: string[];
+  /** Every distinct fix, cheapest first, with how many conflicts it addresses. */
+  fixes: { label: string; detail: string; costRank: number; costLabel: string; addresses: number }[];
+  cheapestFix: { label: string; detail: string; costLabel: string } | null;
+}
+
 /** Stored on Timetable.healthString. */
 export interface HealthReport {
   score: number;
@@ -132,6 +143,7 @@ export interface HealthReport {
   unplaced: UnplacedLesson[];
   warnings: string[];
   recommendations: string[];
+  conflictAnalysis?: ConflictAnalysis | null;
 }
 
 export interface SubstituteSuggestion {

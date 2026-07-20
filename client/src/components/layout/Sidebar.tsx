@@ -167,7 +167,7 @@ export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: (
             {railed ? (
               <div className="mx-auto mb-2 h-px w-6 bg-line" aria-hidden />
             ) : (
-              <div className="px-2.5 pb-1.5 text-[0.63rem] font-semibold uppercase tracking-[0.1em] text-slate-400">{group}</div>
+              <div className={cn('px-2.5 pb-1.5 text-[0.63rem] font-semibold uppercase tracking-[0.1em]', tintFor(group).label)}>{group}</div>
             )}
             <div className="space-y-px">
               {items
@@ -197,7 +197,10 @@ export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: (
                         )}
                         {isActive && !railed && <span className="absolute -left-3 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-r-full bg-brand-600" />}
                         <item.icon
-                          className={cn('h-[15px] w-[15px] shrink-0', isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600')}
+                          className={cn(
+                            'h-[15px] w-[15px] shrink-0 transition-opacity',
+                            isActive ? 'text-brand-600' : cn(tintFor(item.group).icon, 'opacity-80 group-hover:opacity-100'),
+                          )}
                           strokeWidth={1.9}
                         />
                         {!railed && <span className="truncate">{item.label}</span>}

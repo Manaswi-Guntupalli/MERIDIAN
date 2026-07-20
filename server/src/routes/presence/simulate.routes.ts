@@ -179,4 +179,9 @@ router.post(
   }),
 );
 
+// Fusion (RFID + face) is deliberately NOT simulated here with synthetic
+// templates any more — the anti-proxy loop runs only against a real camera:
+// Face Recognition → Live Kiosk → Gate mode, which pairs the physical/manual
+// card tap with the live descriptor and requires BOTH to agree.
+
 export default router;

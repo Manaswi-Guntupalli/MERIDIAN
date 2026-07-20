@@ -190,7 +190,7 @@ Current installed highlights:
 
 #### Presence
 
-- Current role: event-driven attendance platform. RFID, QR, manual and face
+- Current role: event-driven attendance platform. RFID, manual and face
   recognition all normalize to one `ScanInput` and flow through a single
   `processScan()` pipeline (`server/src/services/presence/engine.ts`) —
   attendance is the event that drives the rest of the ERP, not a feature

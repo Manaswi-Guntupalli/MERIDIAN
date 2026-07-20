@@ -18,3 +18,5 @@ export {
   planRoomClosure,
 } from './workflow.js';
 export { planSubstitutes, applySubstitutes, dayIndexFor } from './substitute.js';
+export { runAbsenceCascade, undoAbsenceCascade } from './cascade.js';
+export type { CascadeResult, CascadeStep } from './cascade.js';

@@ -176,6 +176,15 @@ const reversers: Record<string, Reverser> = {
     if (p.documentId)
       await tx.document.update({ where: { id: p.documentId }, data: { status: 'REVIEW' } }).catch(() => {});
   },
+  // Undoing an absence cascade restores the original timetable state: the
+  // substitutions and the absence row are removed atomically. Notifications
+  // already sent are NOT pretended away — the staff route sends an explicit
+  // correction notice after the state is restored.
+  STAFF_ABSENCE_CASCADE: async (p, tx) => {
+    if (!p.absenceId) return;
+    await tx.substitution.deleteMany({ where: { absenceId: p.absenceId } });
+    await tx.staffAbsence.delete({ where: { id: p.absenceId } }).catch(() => {});
+  },
   // Undoing an enrollment genuinely erases the biometric templates — which is
   // also the data-protection "right to erasure" path for a parent opt-out.
   FACE_ENROLLED: async (p, tx) => {

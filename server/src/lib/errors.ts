@@ -14,6 +14,10 @@ export const notFound = (msg = 'Resource not found') => new AppError(404, msg);
 export const badRequest = (msg = 'Bad request', details?: unknown) => new AppError(400, msg, details);
 export const unauthorized = (msg = 'Not authenticated') => new AppError(401, msg);
 export const forbidden = (msg = 'Not authorized') => new AppError(403, msg);
+// 423 Locked — a resource is temporarily frozen (e.g. attendance/timetable
+// changes during an active emergency). Distinct from 403 so the client can
+// show a "frozen until the incident closes" state rather than a permissions error.
+export const locked = (msg = 'Resource is locked') => new AppError(423, msg);
 
 // Wraps async route handlers so thrown/rejected errors reach the error middleware.
 export const asyncHandler =

@@ -28,6 +28,11 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAX_SAME_SUBJECT_PER_DAY = 2;
+// A class never sits through more than two back-to-back periods of the same
+// subject (a double period is fine; a triple is not). Enforced explicitly —
+// today's per-day cap of 2 already implies it, but this rule must survive
+// anyone raising that cap.
+const MAX_SAME_SUBJECT_RUN = 2;
 
 /** Deterministic PRNG so tests are reproducible and restarts differ. */
 function mulberry32(seed: number) {
@@ -69,6 +74,7 @@ export class ScheduleState {
   teacherDailyCount = new Map<string, number>();
   teacherPeriods = new Map<string, Set<number>>(); // teacher|day → periods
   classSubjectDay = new Map<string, number>(); // class|subject|day → count
+  classSubjectPeriods = new Map<string, Set<number>>(); // class|subject|day → periods (for run checks)
   assignments: Assignment[] = [];
 
   constructor(input: SolverInput) {
@@ -99,6 +105,15 @@ export class ScheduleState {
   /** Longest back-to-back run the teacher would have after adding `period`. */
   runLength(teacherId: string, day: number, period: number): number {
     const set = this.teacherPeriods.get(dk(teacherId, day));
+    let run = 1;
+    for (let p = period - 1; set?.has(p); p--) run++;
+    for (let p = period + 1; set?.has(p); p++) run++;
+    return run;
+  }
+
+  /** Longest same-subject run the CLASS would have after adding `period`. */
+  subjectRunLength(classId: string, subjectId: string, day: number, period: number): number {
+    const set = this.classSubjectPeriods.get(`${classId}|${subjectId}|${day}`);
     let run = 1;
     for (let p = period - 1; set?.has(p); p--) run++;
     for (let p = period + 1; set?.has(p); p++) run++;
@@ -137,6 +152,8 @@ export class ScheduleState {
       issues.push(`Would give ${teacher.name} more than ${teacher.maxConsecutive} classes in a row`);
     if ((this.classSubjectDay.get(`${lesson.classId}|${lesson.subjectId}|${day}`) ?? 0) >= MAX_SAME_SUBJECT_PER_DAY)
       issues.push(`${lesson.className} already has ${lesson.subjectName} twice that day`);
+    if (this.subjectRunLength(lesson.classId, lesson.subjectId, day, period) > MAX_SAME_SUBJECT_RUN)
+      issues.push(`Would give ${lesson.className} more than ${MAX_SAME_SUBJECT_RUN} periods of ${lesson.subjectName} in a row`);
     if (lesson.requiresLab && (!room || room.type !== 'LAB'))
       issues.push(`${lesson.subjectName} needs a laboratory`);
     if (room) {
@@ -159,6 +176,7 @@ export class ScheduleState {
     if (this.runLength(t.id, day, period) > t.maxConsecutive) return false;
     if ((this.classSubjectDay.get(`${lesson.classId}|${lesson.subjectId}|${day}`) ?? 0) >= MAX_SAME_SUBJECT_PER_DAY)
       return false;
+    if (this.subjectRunLength(lesson.classId, lesson.subjectId, day, period) > MAX_SAME_SUBJECT_RUN) return false;
     if (lesson.requiresLab && (!room || room.type !== 'LAB')) return false;
     if (room) {
       if (this.roomBusy.has(ck(room.id, day, period))) return false;
@@ -196,6 +214,9 @@ export class ScheduleState {
     set.add(a.period);
     const csd = `${a.classId}|${a.subjectId}|${a.day}`;
     this.classSubjectDay.set(csd, (this.classSubjectDay.get(csd) ?? 0) + 1);
+    let csp = this.classSubjectPeriods.get(csd);
+    if (!csp) this.classSubjectPeriods.set(csd, (csp = new Set()));
+    csp.add(a.period);
     this.assignments.push(a);
   }
 
@@ -208,6 +229,7 @@ export class ScheduleState {
     this.teacherPeriods.get(dk(a.teacherId, a.day))?.delete(a.period);
     const csd = `${a.classId}|${a.subjectId}|${a.day}`;
     this.classSubjectDay.set(csd, (this.classSubjectDay.get(csd) ?? 1) - 1);
+    this.classSubjectPeriods.get(csd)?.delete(a.period);
     const i = this.assignments.indexOf(a);
     if (i >= 0) this.assignments.splice(i, 1);
   }

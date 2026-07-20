@@ -7,6 +7,7 @@ import { validateBody } from '../utils/validate.js';
 import { recordEvent } from '../services/eventStore.js';
 import { processScan } from '../services/presence/engine.js';
 import { assertOwnClass } from '../services/presence/authz.js';
+import { assertNotLocked } from '../services/emergency.js';
 import { ATTENDANCE_STATUS, STAFF } from '../utils/constants.js';
 
 const router = Router();
@@ -64,6 +65,7 @@ router.post(
   validateBody(markSchema),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
+    await assertNotLocked(schoolId, 'Attendance');
     const body = req.body as z.infer<typeof markSchema>;
     const date = body.date || todayStr();
 
@@ -111,6 +113,7 @@ router.post(
   validateBody(bulkSchema),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
+    await assertNotLocked(schoolId, 'Attendance');
     const { classId, status } = req.body as z.infer<typeof bulkSchema>;
     const date = (req.body as any).date || todayStr();
     const owned = await prisma.class.findFirst({ where: { id: classId, schoolId } });

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Check, X, Clock, CalendarOff, Zap } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, apiError } from '@/lib/api';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
 import { Card, Badge, LoadingScreen, EmptyState } from '@/components/ui';
@@ -38,6 +38,7 @@ export default function Attendance() {
   const mark = useMutation({
     mutationFn: async (v: { studentId: string; status: string }) => api.post('/attendance/mark', { ...v, classId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'roster', classId] }),
+    onError: (e) => pushToast({ title: 'Could not mark attendance', body: apiError(e), severity: 'WARNING' }),
   });
 
   const bulk = useMutation({
@@ -46,6 +47,7 @@ export default function Attendance() {
       pushToast({ title: 'Done ✓', body: `${res.className}: ${res.marked} marked ${res.status}`, severity: 'SUCCESS' });
       qc.invalidateQueries({ queryKey: ['attendance', 'roster', classId] });
     },
+    onError: (e) => pushToast({ title: 'Could not mark attendance', body: apiError(e), severity: 'WARNING' }),
   });
 
   const marked = roster.data?.roster.filter((r) => r.status !== 'UNMARKED').length ?? 0;

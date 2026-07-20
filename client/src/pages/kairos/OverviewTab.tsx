@@ -42,10 +42,14 @@ export default function OverviewTab({
   const [setupOpen, setSetupOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const [blockers, setBlockers] = useState<KIssue[] | null>(null);
+  const [conflict, setConflict] = useState<import('./types').KConflictAnalysis | null>(null);
 
   const { active, draft, issues, setup, versions } = overview;
   const blockerCount = issues.filter((i) => i.severity === 'BLOCKER').length;
   const health = (draft ?? active)?.health;
+  // Freshest analysis wins: the one from the last generate attempt, else the
+  // one stored with the draft's health report.
+  const conflictInfo = conflict ?? health?.conflictAnalysis ?? null;
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['kairos-overview'] });
@@ -59,6 +63,7 @@ export default function OverviewTab({
     onSuccess: (res) => {
       refresh();
       setBlockers(null);
+      setConflict(res.conflictAnalysis ?? null);
       pushToast({
         title: 'Draft ready for review',
         body: `Health ${res.timetable.score}/100 · generated in ${(res.timetable.solveMs / 1000).toFixed(1)}s`,
@@ -68,6 +73,7 @@ export default function OverviewTab({
     },
     onError: (err: any) => {
       const iss = err?.response?.data?.issues as KIssue[] | undefined;
+      setConflict(err?.response?.data?.conflictAnalysis ?? null);
       if (iss) {
         setBlockers(iss.filter((i) => i.severity === 'BLOCKER'));
         pushToast({ title: 'Cannot generate yet', body: 'Fix the blockers listed below first.', severity: 'WARNING' });
@@ -204,6 +210,36 @@ export default function OverviewTab({
               <p className="mt-3 text-xs text-slate-400">The principal approves and publishes; you can keep refining the draft until then.</p>
             )}
           </Card>
+
+          {/* Why it broke + the cheapest way out — the smallest conflicting
+              rule set and a deterministically cost-ranked fix list. */}
+          {conflictInfo?.cheapestFix && (
+            <Card className="!border-brand-400/30 !bg-brand-500/[0.05]">
+              <h2 className="mb-1.5 font-bold text-slate-900">Cheapest way to a full schedule</h2>
+              <div className="text-sm text-slate-800">
+                <span className="font-semibold text-brand-600">{conflictInfo.cheapestFix.label}</span>
+                <span className="ml-2 rounded bg-brand-500/10 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-brand-600">{conflictInfo.cheapestFix.costLabel}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">{conflictInfo.cheapestFix.detail}</p>
+              <details className="mt-2">
+                <summary className="cursor-pointer list-none text-[0.72rem] font-semibold text-brand-600 hover:text-brand-700">
+                  {conflictInfo.conflicts.length} conflicting rule{conflictInfo.conflicts.length > 1 ? 's' : ''} · all fixes ranked by cost
+                </summary>
+                <div className="mt-1.5 space-y-1 rounded-lg border border-line bg-white/50 px-3 py-2 text-[0.72rem] text-slate-500">
+                  {conflictInfo.conflicts.map((c, i) => (
+                    <div key={`c-${i}`}>• {c}</div>
+                  ))}
+                  <div className="mt-1.5 border-t border-line pt-1.5">
+                    {conflictInfo.fixes.map((f, i) => (
+                      <div key={`f-${i}`}>
+                        <b className="text-slate-700">{f.label}</b> ({f.costLabel}, addresses {f.addresses}) — {f.detail}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </Card>
+          )}
 
           {/* Pre-flight checks */}
           <Card>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { solve, verifySolution } from './engine.js';
+import { ScheduleState, solve, verifySolution } from './engine.js';
 import type { Assignment, GridShape, SolverInput } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +76,20 @@ function audit(input: SolverInput, assignments: Assignment[]): string[] {
         run = daily[i] === daily[i - 1] + 1 ? run + 1 : 1;
         if (run > t.maxConsecutive) problems.push(`${t.name} consecutive run > ${t.maxConsecutive}`);
       }
+    }
+  }
+  // Subject balance: a class never sits >2 back-to-back periods of one subject.
+  const byClassSubjectDay = new Map<string, number[]>();
+  for (const a of assignments) {
+    const k = `${a.classId}|${a.subjectId}|${a.day}`;
+    (byClassSubjectDay.get(k) ?? byClassSubjectDay.set(k, []).get(k)!).push(a.period);
+  }
+  for (const [k, periods] of byClassSubjectDay) {
+    const ps = periods.sort((x, y) => x - y);
+    let run = 1;
+    for (let i = 1; i < ps.length; i++) {
+      run = ps[i] === ps[i - 1] + 1 ? run + 1 : 1;
+      if (run > 2) problems.push(`subject run > 2 for ${k}`);
     }
   }
   return problems;
@@ -170,6 +184,27 @@ describe('Kairos engine — hard constraints', () => {
       expect(a.explain!.confidence).toBeGreaterThanOrEqual(0.7);
       expect(a.explain!.confidence).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('never lets a class sit 3+ periods of the same subject in a row', () => {
+    const input = baseInput();
+    const state = new ScheduleState(input);
+    // 9A has Maths at P2 and P4 on Tuesday; slotting P3 would make a triple.
+    state.place({ classId: 'A', subjectId: 'sM', day: 1, period: 1, teacherId: 'tm', roomId: 'R1' });
+    state.place({ classId: 'A', subjectId: 'sM', day: 1, period: 3, teacherId: 'tm', roomId: 'R1' });
+    const lesson = input.lessons[0];
+    const teacher = input.teachers.find((t) => t.id === 'tx')!; // different qualified teacher — the rule is about the CLASS
+    expect(state.canPlace(lesson, 1, 2, teacher, undefined)).toBe(false);
+    const issues = state.placementIssues(lesson, 1, 2, teacher, undefined);
+    expect(issues.some((i) => /more than 2 periods of Maths in a row/.test(i))).toBe(true);
+  });
+
+  it('verifySolution rejects a hand-built same-subject triple', () => {
+    const input = baseInput();
+    const triple: Assignment[] = [1, 2, 3].map((period) => ({
+      classId: 'A', subjectId: 'sM', day: 1, period, teacherId: 'tm', roomId: 'R1',
+    }));
+    expect(verifySolution(input, triple).length).toBeGreaterThan(0);
   });
 
   it('verifySolution catches corrupted schedules', () => {

@@ -329,11 +329,11 @@ model ReaderHeartbeat {
   @@index([readerId, timestamp])
 }
 
-// The append-only raw scan log — every source (RFID/QR/MANUAL/CV) writes
+// The append-only raw scan log — every source (RFID/MANUAL/CV) writes
 // exactly this shape via presence/engine.ts. This is what Presence's own
 // live feed, history and analytics read; the `Attendance` table above stays
 // the materialized daily view every other engine already reads, untouched.
-// source ∈ RFID | QR | MANUAL | CV
+// source ∈ RFID | MANUAL | CV
 // direction ∈ ENTRY | EXIT | REENTRY | UNKNOWN
 // verificationStatus ∈ VERIFIED | DUPLICATE | UNKNOWN | LATE | REJECTED
 model AttendanceEvent {
@@ -725,15 +725,60 @@ model NotificationRead {
 // ──────────────────────────  EMERGENCY MODE  ────────────────────────
 // kind ∈ FIRE | EARTHQUAKE | MEDICAL | LOCKDOWN
 model EmergencyIncident {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  kind        String                             // FIRE | EARTHQUAKE | MEDICAL | LOCKDOWN
+  severity    String   @default("CRITICAL")
+  status      String   @default("ACTIVE")        // ACTIVE | RESOLVED
+  triggeredBy String?                            // actor display name
+  triggeredById String?
+  note        String?
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  resolvedById String?
+
+  acks   EmergencyAck[]
+  events EmergencyEvent[]
+
+  @@index([schoolId, status])
+}
+
+// A teacher's class-status report or a parent's acknowledgement for one
+// incident. One row per (incident, user) — re-submitting updates in place, so
+// dashboard counts never double-count. Class status is DERIVED from these,
+// never fabricated.
+model EmergencyAck {
   id         String   @id @default(cuid())
-  schoolId   String
-  school     School   @relation(fields: [schoolId], references: [id])
-  kind       String
-  status     String   @default("ACTIVE")        // ACTIVE | RESOLVED
-  triggeredBy String?
+  incidentId String
+  incident   EmergencyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String
+  userName   String
+  role       String                              // TEACHER | PARENT
+  classId    String?                             // teacher's class, when applicable
+  className  String?
+  status     String                              // SAFE | NEED_ASSISTANCE | ACKNOWLEDGED | NEED_INFO
   note       String?
   createdAt  DateTime @default(now())
-  resolvedAt DateTime?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([incidentId, userId])
+  @@index([incidentId, role])
+}
+
+// Append-only incident timeline. Every coordinated action writes one row; rows
+// are never updated or deleted, so the timeline is an immutable audit trail.
+model EmergencyEvent {
+  id         String   @id @default(cuid())
+  incidentId String
+  incident   EmergencyIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  type       String                              // ACTIVATED | NOTIFIED | BANNER | ATTENDANCE_LOCKED | TIMETABLE_PAUSED | TEACHER_ACK | PARENT_ACK | RESOLVED
+  message    String
+  actorName  String?
+  createdAt  DateTime @default(now())
+
+  @@index([incidentId, createdAt])
 }
 
 model Setting {
