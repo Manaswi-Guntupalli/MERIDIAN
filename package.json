@@ -8,6 +8,8 @@
     "client"
   ],
   "scripts": {
+    "postinstall": "node scripts/ensure-env.mjs",
+    "setup": "npm run install:all && npm run db:setup && npm run seed",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "db:setup": "npm --prefix server run db:setup",
     "seed": "npm --prefix server run seed",
@@ -15,8 +17,12 @@
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "intelligence": "cd intelligence && python -m uvicorn app.main:app --port 8010",
+    "intelligence:install": "cd intelligence && python -m pip install -r requirements.txt",
     "build": "npm --prefix server run build && npm --prefix client run build",
     "start": "npm --prefix server run start"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

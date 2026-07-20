@@ -37,15 +37,36 @@ Append-only **event store** → materialized views → **Time Machine** replay +
 
 ## 🚀 Quick start
 
+**Prerequisites:** Node.js **20+** (22 recommended — see `.nvmrc`) and npm. Python **3.11+** is optional (only for the intelligence engine below). No database server, Redis, or API keys required — SQLite is bundled and the app runs fully offline of any paid service.
+
 ```bash
-# from the repo root
-npm run install:all       # install root + server + client
-npm --prefix server run db:setup   # create the SQLite DB + Prisma client
-npm --prefix server run seed       # seed a realistic school
-npm run dev                # runs server (:4000) + client (:5173) together
+# from the repo root — one command does everything:
+npm run setup    # installs all deps, creates server/.env, builds + seeds the SQLite DB
+npm run dev      # runs server (:4000) + client (:5173) together
 ```
 
-Open **http://localhost:5173**.
+Open **http://localhost:5173** and use a one-tap demo login.
+
+> `npm run setup` is idempotent and self-healing: it auto-creates `server/.env` from `server/.env.example` if missing, and generates the Prisma client on install — so a fresh clone never fails on the first command. Re-running `npm run seed` resets the demo data to a clean state.
+
+<details>
+<summary>Prefer the individual steps?</summary>
+
+```bash
+npm run install:all                 # install root + server + client (also creates server/.env + Prisma client)
+npm --prefix server run db:setup    # create the SQLite DB + Prisma client
+npm --prefix server run seed        # seed a realistic school
+npm run dev
+```
+</details>
+
+### Optional — the Python intelligence engine
+The dashboard's insights, forecasts, health score and at-risk index are computed by a read-only Python microservice. Without it, those panels show an explicit **"engine offline"** state (never invented numbers) — everything else works.
+
+```bash
+npm run intelligence:install   # one-time: pip install -r intelligence/requirements.txt
+npm run intelligence           # runs the engine on :8010
+```
 
 ### Demo logins (password: `meridian123`)
 | Role | Email |
