@@ -93,8 +93,14 @@ export function scoreField(input: ScoreInput): number {
   return Math.max(0, Math.min(0.99, Number(score.toFixed(4))));
 }
 
-export function statusFor(confidence: number, valid: boolean, value: string, required: boolean): FieldStatus {
-  if (!value.trim()) return required ? 'MISSING' : 'REVIEW';
+export function statusFor(confidence: number, valid: boolean, value: string, expected: boolean): FieldStatus {
+  // An empty field means two very different things:
+  //  · EXPECTED on this document type → MISSING. A human should look — the
+  //    form normally carries it, so its absence is document-quality news.
+  //  · not expected → ABSENT. This form version simply doesn't have the box.
+  //    Not an OCR failure, not review work; the row is kept only so a clerk
+  //    can hand-fill it later if they want to.
+  if (!value.trim()) return expected ? 'MISSING' : 'ABSENT';
   if (!valid) return 'REVIEW';
   return confidence >= AUTO_ACCEPT ? 'AUTO' : 'REVIEW';
 }
@@ -103,19 +109,22 @@ export function statusFor(confidence: number, valid: boolean, value: string, req
  * Document-level confidence.
  *
  * A plain mean would let twelve easy fields drown out the one that's wrong —
- * and the one that's wrong is the entire reason a human is looking. So required
- * fields carry triple weight, and a missing required field is scored as a zero
+ * and the one that's wrong is the entire reason a human is looking. So expected
+ * fields carry triple weight, and a missing expected field is scored as a zero
  * rather than skipped. The headline number should get *worse* when something
  * important is absent, not quietly improve because there's less to average.
+ * ABSENT fields (not expected, not on this form version) are excluded
+ * entirely — a form can't lose marks for boxes it never had.
  */
 export function documentConfidence(
-  fields: { confidence: number; required: boolean; status: FieldStatus }[],
+  fields: { confidence: number; expected: boolean; status: FieldStatus }[],
 ): number {
-  if (!fields.length) return 0;
+  const counted = fields.filter((f) => f.status !== 'ABSENT');
+  if (!counted.length) return 0;
   let weighted = 0;
   let weight = 0;
-  for (const f of fields) {
-    const w = f.required ? 3 : 1;
+  for (const f of counted) {
+    const w = f.expected ? 3 : 1;
     weighted += (f.status === 'MISSING' ? 0 : f.confidence) * w;
     weight += w;
   }

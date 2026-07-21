@@ -85,10 +85,33 @@ const SIGNATURES: { name: string; ext: string; test: (b: Buffer) => boolean }[] 
  * Extensions and MIME types are claims the client makes; bytes are evidence.
  * This is also the seam where a proper virus scanner would sit.
  */
+// Formats we recognise but deliberately DON'T process — named so the clerk
+// gets a fix, not a shrug. HEIC is the iPhone camera default and the single
+// most common real-world rejection.
+const KNOWN_REJECTS: { test: (b: Buffer) => boolean; message: (f: string) => string }[] = [
+  {
+    // ISO-BMFF "ftyp" box with a HEIF-family brand at offset 8.
+    test: (b) =>
+      b.length >= 12 &&
+      b.subarray(4, 8).toString('latin1') === 'ftyp' &&
+      ['heic', 'heix', 'heim', 'heis', 'hevc', 'hevm', 'hevs', 'mif1', 'msf1'].includes(b.subarray(8, 12).toString('latin1')),
+    message: (f) =>
+      `"${f}" is an iPhone HEIC photo, which Lumen cannot read. On the phone, share/export it as JPEG ` +
+      '(or set Settings → Camera → Formats → "Most Compatible"), then upload again.',
+  },
+  {
+    // ZIP container — almost always a DOCX/XLSX here.
+    test: (b) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && (b[2] === 0x03 || b[2] === 0x05 || b[2] === 0x07),
+    message: (f) => `"${f}" looks like an Office document (Word/Excel). Export or print it to PDF, then upload the PDF.`,
+  },
+];
+
 export function sniffFile(buffer: Buffer, fileName: string): { name: string; ext: string } {
   if (!buffer?.length) throw badRequest('The uploaded file is empty.');
   const match = SIGNATURES.find((s) => s.test(buffer));
   if (!match) {
+    const known = KNOWN_REJECTS.find((r) => r.test(buffer));
+    if (known) throw badRequest(known.message(fileName));
     throw badRequest(
       `"${fileName}" is not a recognisable PDF or image — its content does not match any supported format. ` +
         'If this is a scan, re-export it as PDF, PNG or JPG.',

@@ -101,10 +101,13 @@ export function classify(pages: PageResult[]): Classification {
   const winner = scored[0];
   const runnerUp = scored[1];
 
-  // Nothing matched at all — an unknown or unreadable page.
+  // Nothing matched at all — an unknown or unreadable page. Say so: the type
+  // is UNKNOWN, not a silent default. (Extraction still runs with the default
+  // template's anchors — generic fields like names and dates overlap across
+  // forms — but the document is honestly labelled until a human sets a type.)
   if (!winner || winner.score <= 0) {
     return {
-      type: TEMPLATES[0].type,
+      type: 'UNKNOWN',
       confidence: 0,
       ranked: scored.slice(0, 5).map(({ type, label, score }) => ({ type, label, score: Math.round(score) })),
       matched: [],

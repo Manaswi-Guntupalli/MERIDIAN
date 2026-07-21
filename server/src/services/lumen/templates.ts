@@ -19,15 +19,15 @@ import type { DocTemplate } from './types.js';
 
 /** Anchors shared by most student-facing forms. */
 const STUDENT_CORE: DocTemplate['fields'] = [
-  { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ["Student Name", "Name of Student", "Student's Name", "Full Name of Student", "Pupil Name", "Candidate Name"] },
+  { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ["Student Name", "Name of Student", "Student's Name", "Full Name of Student", "Pupil Name", "Candidate Name"] },
   { key: 'fatherName', label: "Father's name", type: 'name', anchors: ["Father Name", "Father's Name", "Name of Father", "Father / Guardian Name"] },
   { key: 'motherName', label: "Mother's name", type: 'name', anchors: ["Mother Name", "Mother's Name", "Name of Mother"] },
-  { key: 'dob', label: 'Date of birth', type: 'date', required: true, anchors: ['Date of Birth', 'DOB', 'Birth Date', 'D.O.B.'] },
+  { key: 'dob', label: 'Date of birth', type: 'date', expected: true, anchors: ['Date of Birth', 'DOB', 'Birth Date', 'D.O.B.'] },
   { key: 'gender', label: 'Gender', type: 'gender', options: ['Male', 'Female', 'Other'], anchors: ['Gender', 'Sex'] },
   { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Class Applied For', 'Standard', 'Grade', 'Class / Grade'] },
   { key: 'section', label: 'Section', type: 'text', anchors: ['Section', 'Div', 'Division'] },
   { key: 'bloodGroup', label: 'Blood group', type: 'bloodGroup', anchors: ['Blood Group', 'Blood Grp', 'Blood'] },
-  { key: 'phone', label: 'Contact number', type: 'phone', required: true, anchors: ['Phone', 'Mobile', 'Contact Number', 'Mobile Number', 'Contact No', 'Phone Number'] },
+  { key: 'phone', label: 'Contact number', type: 'phone', expected: true, anchors: ['Phone', 'Mobile', 'Contact Number', 'Mobile Number', 'Contact No', 'Phone Number'] },
   { key: 'email', label: 'Email', type: 'email', anchors: ['Email', 'E-mail', 'Email Address', 'E-mail ID'] },
   { key: 'address', label: 'Address', type: 'address', multiline: true, anchors: ['Address', 'Residential Address', 'Permanent Address', 'Home Address'] },
   { key: 'pincode', label: 'PIN code', type: 'pincode', anchors: ['PIN', 'PIN Code', 'Pincode', 'Postal Code', 'ZIP'] },
@@ -39,11 +39,11 @@ const GUARDIAN: DocTemplate['fields'] = [
 ];
 
 const STAFF_CORE: DocTemplate['fields'] = [
-  { key: 'teacherName', label: 'Full name', type: 'name', required: true, anchors: ['Full Name', 'Name of Applicant', 'Applicant Name', 'Candidate Name', 'Employee Name', 'Teacher Name', 'Name'] },
+  { key: 'teacherName', label: 'Full name', type: 'name', expected: true, anchors: ['Full Name', 'Name of Applicant', 'Applicant Name', 'Candidate Name', 'Employee Name', 'Teacher Name', 'Name'] },
   { key: 'dob', label: 'Date of birth', type: 'date', anchors: ['Date of Birth', 'DOB', 'D.O.B.'] },
   { key: 'gender', label: 'Gender', type: 'gender', options: ['Male', 'Female', 'Other'], anchors: ['Gender', 'Sex'] },
-  { key: 'email', label: 'Email', type: 'email', required: true, anchors: ['Email', 'E-mail', 'Email Address', 'E-mail ID'] },
-  { key: 'phone', label: 'Phone', type: 'phone', required: true, anchors: ['Phone', 'Mobile', 'Contact Number', 'Mobile Number', 'Contact No'] },
+  { key: 'email', label: 'Email', type: 'email', expected: true, anchors: ['Email', 'E-mail', 'Email Address', 'E-mail ID'] },
+  { key: 'phone', label: 'Phone', type: 'phone', expected: true, anchors: ['Phone', 'Mobile', 'Contact Number', 'Mobile Number', 'Contact No'] },
   { key: 'address', label: 'Address', type: 'address', multiline: true, anchors: ['Address', 'Residential Address', 'Permanent Address'] },
   { key: 'bloodGroup', label: 'Blood group', type: 'bloodGroup', anchors: ['Blood Group', 'Blood Grp'] },
 ];
@@ -135,7 +135,7 @@ export const TEMPLATES: DocTemplate[] = [
     ],
     fields: [
       ...STAFF_CORE,
-      { key: 'employeeId', label: 'Employee ID', type: 'id', required: true, anchors: ['Employee ID', 'Employee Code', 'Emp ID', 'Emp No', 'Staff ID'] },
+      { key: 'employeeId', label: 'Employee ID', type: 'id', expected: true, anchors: ['Employee ID', 'Employee Code', 'Emp ID', 'Emp No', 'Staff ID'] },
       { key: 'designation', label: 'Designation', type: 'text', anchors: ['Designation', 'Role', 'Post'] },
       { key: 'department', label: 'Department', type: 'text', anchors: ['Department', 'Dept'] },
       { key: 'joiningDate', label: 'Date of joining', type: 'date', anchors: ['Date of Joining', 'Joining Date', 'DOJ'] },
@@ -156,13 +156,13 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'number of days', weight: 3 },
     ],
     fields: [
-      { key: 'applicantName', label: 'Applicant name', type: 'name', required: true, anchors: ['Name', 'Student Name', 'Applicant Name', 'Employee Name'] },
+      { key: 'applicantName', label: 'Applicant name', type: 'name', expected: true, anchors: ['Name', 'Student Name', 'Applicant Name', 'Employee Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Grade'] },
       { key: 'section', label: 'Section', type: 'text', anchors: ['Section', 'Division'] },
-      { key: 'fromDate', label: 'From date', type: 'date', required: true, anchors: ['From', 'From Date', 'Leave From', 'Start Date'] },
-      { key: 'toDate', label: 'To date', type: 'date', required: true, anchors: ['To', 'To Date', 'Leave To', 'End Date'] },
+      { key: 'fromDate', label: 'From date', type: 'date', expected: true, anchors: ['From', 'From Date', 'Leave From', 'Start Date'] },
+      { key: 'toDate', label: 'To date', type: 'date', expected: true, anchors: ['To', 'To Date', 'Leave To', 'End Date'] },
       { key: 'days', label: 'Number of days', type: 'integer', min: 1, max: 365, anchors: ['Number of Days', 'No of Days', 'Total Days', 'Days'] },
-      { key: 'reason', label: 'Reason', type: 'text', multiline: true, required: true, anchors: ['Reason', 'Reason for Leave', 'Purpose'] },
+      { key: 'reason', label: 'Reason', type: 'text', multiline: true, expected: true, anchors: ['Reason', 'Reason for Leave', 'Purpose'] },
       { key: 'phone', label: 'Contact number', type: 'phone', anchors: ['Phone', 'Mobile', 'Contact Number'] },
       { key: 'signature', label: 'Signature', type: 'signature', anchors: ['Signature', "Parent's Signature", 'Applicant Signature'] },
     ],
@@ -179,12 +179,12 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'received with thanks', weight: 6 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Student', 'Received From'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Student', 'Received From'] },
       { key: 'admissionNo', label: 'Admission number', type: 'id', anchors: ['Admission No', 'Adm No', 'Student ID'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Grade'] },
-      { key: 'receiptNo', label: 'Receipt number', type: 'id', required: true, anchors: ['Receipt No', 'Receipt Number', 'Bill No'] },
-      { key: 'amount', label: 'Amount', type: 'money', required: true, anchors: ['Amount', 'Amount Paid', 'Total Amount', 'Total', 'Grand Total'] },
-      { key: 'paymentDate', label: 'Payment date', type: 'date', required: true, anchors: ['Date', 'Payment Date', 'Date of Payment'] },
+      { key: 'receiptNo', label: 'Receipt number', type: 'id', expected: true, anchors: ['Receipt No', 'Receipt Number', 'Bill No'] },
+      { key: 'amount', label: 'Amount', type: 'money', expected: true, anchors: ['Amount', 'Amount Paid', 'Total Amount', 'Total', 'Grand Total'] },
+      { key: 'paymentDate', label: 'Payment date', type: 'date', expected: true, anchors: ['Date', 'Payment Date', 'Date of Payment'] },
       { key: 'paymentMode', label: 'Payment mode', type: 'text', options: ['Cash', 'Cheque', 'Online', 'UPI', 'Card'], anchors: ['Payment Mode', 'Mode of Payment', 'Paid By'] },
       { key: 'term', label: 'Term', type: 'text', anchors: ['Term', 'Quarter', 'Installment', 'Instalment'] },
       { key: 'balance', label: 'Balance due', type: 'money', anchors: ['Balance', 'Balance Due', 'Outstanding'] },
@@ -202,7 +202,7 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'term', weight: 2 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Student', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Student', 'Name'] },
       { key: 'rollNo', label: 'Roll number', type: 'id', anchors: ['Roll No', 'Roll Number'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Grade'] },
       { key: 'section', label: 'Section', type: 'text', anchors: ['Section', 'Division'] },
@@ -226,8 +226,8 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'examination', weight: 2 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Candidate', 'Candidate Name', 'Name'] },
-      { key: 'rollNo', label: 'Roll number', type: 'id', required: true, anchors: ['Roll No', 'Roll Number', 'Seat No'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Candidate', 'Candidate Name', 'Name'] },
+      { key: 'rollNo', label: 'Roll number', type: 'id', expected: true, anchors: ['Roll No', 'Roll Number', 'Seat No'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Grade'] },
       { key: 'examName', label: 'Examination', type: 'text', anchors: ['Examination', 'Exam', 'Exam Name'] },
       { key: 'totalMarks', label: 'Marks obtained', type: 'decimal', min: 0, max: 10000, anchors: ['Total Marks Obtained', 'Marks Obtained', 'Total'] },
@@ -246,7 +246,7 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'this is to certify', weight: 5 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name', 'Certify that'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name', 'Certify that'] },
       { key: 'fatherName', label: "Father's name", type: 'name', anchors: ["Father's Name", 'Son of', 'Daughter of', 'S/o', 'D/o'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Studying in'] },
       { key: 'admissionNo', label: 'Admission number', type: 'id', anchors: ['Admission No', 'Adm No'] },
@@ -266,12 +266,12 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'conduct', weight: 3 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Student', 'Name of Pupil', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Student', 'Name of Pupil', 'Name'] },
       { key: 'fatherName', label: "Father's name", type: 'name', anchors: ["Father's Name", 'Name of Father'] },
       { key: 'admissionNo', label: 'Admission number', type: 'id', anchors: ['Admission No', 'Adm No'] },
       { key: 'dob', label: 'Date of birth', type: 'date', anchors: ['Date of Birth', 'DOB'] },
       { key: 'admissionDate', label: 'Date of admission', type: 'date', anchors: ['Date of Admission', 'Admitted On'] },
-      { key: 'leavingDate', label: 'Date of leaving', type: 'date', required: true, anchors: ['Date of Leaving', 'Leaving Date', 'Last Date of Attendance'] },
+      { key: 'leavingDate', label: 'Date of leaving', type: 'date', expected: true, anchors: ['Date of Leaving', 'Leaving Date', 'Last Date of Attendance'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Class in which Studying', 'Standard'] },
       { key: 'reason', label: 'Reason for leaving', type: 'text', multiline: true, anchors: ['Reason for Leaving', 'Reason'] },
       { key: 'conduct', label: 'Conduct', type: 'text', anchors: ['Conduct', 'Character', 'General Conduct'] },
@@ -289,14 +289,14 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'boarding point', weight: 7 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Student', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Student', 'Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard'] },
       { key: 'section', label: 'Section', type: 'text', anchors: ['Section', 'Division'] },
-      { key: 'routeNo', label: 'Route number', type: 'id', required: true, anchors: ['Route No', 'Route Number', 'Bus Route', 'Route'] },
+      { key: 'routeNo', label: 'Route number', type: 'id', expected: true, anchors: ['Route No', 'Route Number', 'Bus Route', 'Route'] },
       { key: 'pickupPoint', label: 'Pick-up point', type: 'text', anchors: ['Pick Up Point', 'Pickup Point', 'Boarding Point', 'Stop'] },
       { key: 'dropPoint', label: 'Drop point', type: 'text', anchors: ['Drop Point', 'Drop Off Point', 'Alighting Point'] },
       { key: 'address', label: 'Address', type: 'address', multiline: true, anchors: ['Address', 'Residential Address'] },
-      { key: 'phone', label: 'Contact number', type: 'phone', required: true, anchors: ['Phone', 'Mobile', 'Contact Number'] },
+      { key: 'phone', label: 'Contact number', type: 'phone', expected: true, anchors: ['Phone', 'Mobile', 'Contact Number'] },
       { key: 'fee', label: 'Transport fee', type: 'money', anchors: ['Transport Fee', 'Bus Fee', 'Fee', 'Amount'] },
     ],
   },
@@ -311,7 +311,7 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'accession no', weight: 7 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Member Name', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Member Name', 'Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard'] },
       { key: 'libraryCardNo', label: 'Library card number', type: 'id', anchors: ['Library Card No', 'Card No', 'Membership No'] },
       { key: 'bookTitle', label: 'Book title', type: 'text', anchors: ['Book Title', 'Title of Book', 'Book Name'] },
@@ -332,16 +332,16 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'physician', weight: 5 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Patient Name', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Patient Name', 'Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard'] },
       { key: 'dob', label: 'Date of birth', type: 'date', anchors: ['Date of Birth', 'DOB'] },
-      { key: 'bloodGroup', label: 'Blood group', type: 'bloodGroup', required: true, anchors: ['Blood Group', 'Blood Grp'] },
+      { key: 'bloodGroup', label: 'Blood group', type: 'bloodGroup', expected: true, anchors: ['Blood Group', 'Blood Grp'] },
       { key: 'allergies', label: 'Allergies', type: 'text', multiline: true, anchors: ['Allergies', 'Known Allergies', 'Allergic To'] },
       { key: 'conditions', label: 'Medical conditions', type: 'text', multiline: true, anchors: ['Medical Conditions', 'Existing Conditions', 'Medical History', 'Chronic Illness'] },
       { key: 'medications', label: 'Medications', type: 'text', multiline: true, anchors: ['Medications', 'Current Medication', 'Regular Medicines'] },
       { key: 'physician', label: 'Physician', type: 'name', anchors: ['Physician', 'Doctor', 'Family Doctor', 'Consulting Physician'] },
       { key: 'physicianPhone', label: 'Physician phone', type: 'phone', anchors: ['Doctor Phone', 'Physician Contact', 'Clinic Number'] },
-      { key: 'emergencyContact', label: 'Emergency contact', type: 'phone', required: true, anchors: ['Emergency Contact', 'Emergency Number'] },
+      { key: 'emergencyContact', label: 'Emergency contact', type: 'phone', expected: true, anchors: ['Emergency Contact', 'Emergency Number'] },
     ],
   },
   {
@@ -355,12 +355,12 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'field trip', weight: 5 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Child', 'Name of Student', 'Ward Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Child', 'Name of Student', 'Ward Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard'] },
-      { key: 'parentName', label: 'Parent name', type: 'name', required: true, anchors: ['Parent Name', 'Name of Parent', 'Guardian Name', "Parent's Name"] },
+      { key: 'parentName', label: 'Parent name', type: 'name', expected: true, anchors: ['Parent Name', 'Name of Parent', 'Guardian Name', "Parent's Name"] },
       { key: 'activity', label: 'Activity', type: 'text', multiline: true, anchors: ['Activity', 'Event', 'Trip', 'Purpose', 'Programme'] },
       { key: 'activityDate', label: 'Activity date', type: 'date', anchors: ['Date of Activity', 'Event Date', 'Trip Date', 'Date'] },
-      { key: 'phone', label: 'Contact number', type: 'phone', required: true, anchors: ['Phone', 'Mobile', 'Contact Number'] },
+      { key: 'phone', label: 'Contact number', type: 'phone', expected: true, anchors: ['Phone', 'Mobile', 'Contact Number'] },
       { key: 'consent', label: 'Consent given', type: 'checkbox', options: ['Yes', 'No'], anchors: ['Consent', 'I Agree', 'Permission Granted'] },
       { key: 'signature', label: 'Signature', type: 'signature', anchors: ['Signature', "Parent's Signature", 'Signature of Parent'] },
     ],
@@ -376,7 +376,7 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'photograph attached', weight: 5 },
     ],
     fields: [
-      { key: 'holderName', label: 'Name', type: 'name', required: true, anchors: ['Name', 'Student Name', 'Applicant Name', 'Employee Name'] },
+      { key: 'holderName', label: 'Name', type: 'name', expected: true, anchors: ['Name', 'Student Name', 'Applicant Name', 'Employee Name'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard', 'Department'] },
       { key: 'idNumber', label: 'ID number', type: 'id', anchors: ['ID No', 'Admission No', 'Employee ID', 'Roll No'] },
       { key: 'dob', label: 'Date of birth', type: 'date', anchors: ['Date of Birth', 'DOB'] },
@@ -397,12 +397,12 @@ export const TEMPLATES: DocTemplate[] = [
       { phrase: 'financial assistance', weight: 7 },
     ],
     fields: [
-      { key: 'studentName', label: 'Student name', type: 'name', required: true, anchors: ['Student Name', 'Name of Applicant', 'Name'] },
+      { key: 'studentName', label: 'Student name', type: 'name', expected: true, anchors: ['Student Name', 'Name of Applicant', 'Name'] },
       { key: 'fatherName', label: "Father's name", type: 'name', anchors: ["Father's Name", 'Name of Father'] },
       { key: 'className', label: 'Class', type: 'text', anchors: ['Class', 'Standard'] },
       { key: 'admissionNo', label: 'Admission number', type: 'id', anchors: ['Admission No', 'Adm No'] },
       { key: 'scholarshipType', label: 'Scholarship type', type: 'text', anchors: ['Scholarship Type', 'Type of Scholarship', 'Category', 'Scheme'] },
-      { key: 'familyIncome', label: 'Annual family income', type: 'money', required: true, anchors: ['Annual Family Income', 'Family Income', 'Annual Income', 'Income'] },
+      { key: 'familyIncome', label: 'Annual family income', type: 'money', expected: true, anchors: ['Annual Family Income', 'Family Income', 'Annual Income', 'Income'] },
       { key: 'percentage', label: 'Last exam percentage', type: 'percentage', min: 0, max: 100, anchors: ['Percentage', 'Last Exam Percentage', 'Marks Percentage', 'Aggregate'] },
       { key: 'bankAccount', label: 'Bank account', type: 'id', anchors: ['Bank Account', 'Account No', 'A/C No'] },
       { key: 'phone', label: 'Contact number', type: 'phone', anchors: ['Phone', 'Mobile', 'Contact Number'] },
@@ -414,6 +414,16 @@ export const TEMPLATE_BY_TYPE = new Map(TEMPLATES.map((t) => [t.type, t]));
 
 export function templateFor(type: string): DocTemplate {
   return TEMPLATE_BY_TYPE.get(type) ?? TEMPLATES[0];
+}
+
+/**
+ * Display label for a stored document type. `templateFor` deliberately falls
+ * back to the default template so extraction always has anchors to try — but
+ * the LABEL must never inherit that fallback: a document we could not
+ * identify says so, instead of masquerading as an "Admission form".
+ */
+export function docTypeLabel(type: string): string {
+  return type === 'UNKNOWN' ? 'Unknown document' : templateFor(type).label;
 }
 
 /** Types the UI can offer as a manual override when the classifier is unsure. */

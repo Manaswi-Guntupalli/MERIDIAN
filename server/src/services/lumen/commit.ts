@@ -25,6 +25,7 @@ import { badRequest } from '../../lib/errors.js';
 import { hashPassword, generateTempPassword } from '../../lib/auth.js';
 import { recordEvent } from '../eventStore.js';
 import { templateFor } from './templates.js';
+import { getCommitPolicy, commitReadiness } from './policy.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -188,9 +189,19 @@ async function commitStudent(
   const guardianName = get(fields, 'guardianName') || get(fields, 'fatherName') || get(fields, 'motherName');
 
   // ── The student's own login. ──
+  // The synthesized email is unique within a school by construction (the
+  // admission number is), but User.email is GLOBALLY unique — two schools can
+  // legitimately mint the same admission number. On a cross-tenant collision,
+  // suffix until free rather than exploding mid-commit.
+  let loginEmail = studentEmail(admissionNo);
+  for (let n = 2; await tx.user.findUnique({ where: { email: loginEmail }, select: { id: true } }); n++) {
+    if (n > 50) throw badRequest('Could not derive a unique login email — set an admission number on the form.');
+    loginEmail = studentEmail(`${admissionNo}-${n}`);
+  }
+  if (loginEmail !== studentEmail(admissionNo)) notes.push(`Login email adjusted to ${loginEmail} (address already in use).`);
   const studentUser = await provisionUser(
     tx,
-    { schoolId, email: studentEmail(admissionNo), name, role: 'STUDENT' },
+    { schoolId, email: loginEmail, name, role: 'STUDENT' },
     credentials,
     `Student · ${name}`,
   );
@@ -336,9 +347,27 @@ export async function commitDocument(
     );
   }
 
+  // An unidentified document must never ride templateFor's fallback into a
+  // student/teacher commit — a human sets the real type first.
+  if (doc.type === 'UNKNOWN') {
+    throw badRequest('This document’s type could not be identified. Set the correct type and reprocess it before committing.');
+  }
   const template = templateFor(doc.type);
   if (!template.commits) {
     throw badRequest(`${template.label} documents are records in themselves — there is nothing to commit them into.`);
+  }
+
+  // School commit policy — the ERP's own bar, separate from document
+  // structure. The pipeline never failed because these were off the form;
+  // but the school has said a record may not be CREATED without them.
+  const policy = await getCommitPolicy(doc.schoolId, template.commits);
+  const readiness = commitReadiness(policy, doc.fields);
+  if (!readiness.ready) {
+    const names = readiness.missing.map((m) => m.label).join(', ');
+    throw badRequest(
+      `School policy requires ${names} before a ${template.commits === 'STUDENT' ? 'student' : 'staff'} record is created. ` +
+        'Fill the field(s) in review, or adjust the commit policy in Lumen settings.',
+    );
   }
 
   const rows: FieldRow[] = doc.fields.map((f) => ({ key: f.key, value: f.value, status: f.status }));

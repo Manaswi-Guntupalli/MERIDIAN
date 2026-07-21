@@ -21,6 +21,24 @@ function daysAgo(n: number): string {
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
+function daysAhead(n: number): string {
+  return daysAgo(-n);
+}
+
+// Deterministic PRNG (mulberry32) — the engine's own "reproducible: same
+// input, same output" honesty rule, applied to the demo data itself. Two
+// seed runs produce the same school.
+let _rng = 20260720 >>> 0;
+function rnd(): number {
+  _rng |= 0;
+  _rng = (_rng + 0x6d2b79f5) | 0;
+  let t = Math.imul(_rng ^ (_rng >>> 15), 1 | _rng);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+const LOCALITIES = ['Kothrud', 'Aundh', 'Baner', 'Viman Nagar', 'Hadapsar', 'Shivajinagar', 'Wakad', 'Kalyani Nagar'];
+const phoneNo = (i: number) => `+91 98${String(220000000 + i * 7919 % 79999999).slice(0, 8)}`;
 
 async function main() {
   console.log('🌱 Seeding Meridian…');
@@ -296,6 +314,12 @@ async function main() {
           role: 'STUDENT',
         },
       });
+      // Contact block filled at creation — these are exactly the columns the
+      // front office needs in an emergency, so no seeded student may lack them.
+      const surname = name.split(' ')[1];
+      const father = `${rand(FIRST, rollGlobal + 11)} ${surname}`;
+      const mother = `${rand(FIRST, rollGlobal + 17)} ${surname}`;
+      const guardian = rollGlobal % 2 ? father : mother;
       const student = await prisma.student.create({
         data: {
           schoolId,
@@ -306,6 +330,13 @@ async function main() {
           name,
           gender: rollGlobal % 2 ? 'M' : 'F',
           bloodGroup: rand(BLOOD, rollGlobal),
+          guardianName: guardian,
+          fatherName: father,
+          motherName: mother,
+          phone: phoneNo(rollGlobal),
+          emergencyContact: phoneNo(rollGlobal + 500),
+          address: `${10 + (rollGlobal % 80)} ${rand(LOCALITIES, rollGlobal)}, Pune`,
+          pincode: `4110${String(rollGlobal % 60 + 1).padStart(2, '0')}`,
         },
       });
       await prisma.rFIDCard.create({
@@ -345,70 +376,153 @@ async function main() {
   // scheme-email login; the demo one just gets a memorable address too).
   await prisma.user.update({ where: { id: students[0].userId! }, data: { email: 'student@meridian.school' } });
 
-  // ── Fees — a well-run school: ~73% collected, with some dues to action ──
-  for (let i = 0; i < students.length; i++) {
-    const s = students[i];
-    const amount = 12500;
-    const mod = i % 5;
-    // mod 0,1,2 → paid in full; mod 3 → partial; mod 4 → overdue.
-    const paid = mod <= 2 ? amount : mod === 3 ? 8000 : 0;
-    const status = paid >= amount ? 'PAID' : paid > 0 ? 'PARTIAL' : 'OVERDUE';
-    await prisma.fee.create({
-      data: {
-        schoolId,
-        studentId: s.id,
-        title: 'Term 1 Tuition',
-        amount,
-        paid,
-        status,
-        dueDate: daysAgo(mod === 4 ? 35 : 5),
-      },
+  // ── Designed risk profiles — a handful of students whose attendance AND
+  //    fee patterns tell a coherent, differentiated story (the early-warning
+  //    demo needs real cases, not 132 near-identical borderline flags).
+  //    Indices into `students` (132 total):
+  const CHRONIC = new Set([7, 40]);       // ~65% attendance all term
+  const DECLINING = new Set([23]);        // fine first half, slipping second half
+  const MONDAY_SKEW = new Set([19, 55]);  // absences cluster on Mondays
+  const OFTEN_LATE = new Set([11]);       // present, but late ~40% of days
+  const FEE_STRESS = new Set([7, 23, 40, 61, 88, 102, 115]); // overdue balances
+
+  // ── Fees — a well-run school (~78% collected) with REAL ledger arithmetic:
+  //    every rupee of `paid` is backed by Payment rows (audit-trail rule:
+  //    the balance and the payment history may never disagree). Varied
+  //    amounts, due dates and overdue ages so aging buckets mean something.
+  const paymentRows: { feeId: string; amount: number; method: string; reference: string | null; paidAt: Date }[] = [];
+  const payMethods = ['UPI', 'CASH', 'BANK_TRANSFER', 'UPI'];
+  let feeCount = 0;
+  const addFee = async (
+    studentId: string,
+    title: string,
+    amount: number,
+    dueDate: string,
+    paidAmount: number,
+    opts: { installments?: number; overdue?: boolean } = {},
+  ) => {
+    feeCount++;
+    const paid = Math.min(paidAmount, amount);
+    const status = paid >= amount ? 'PAID' : paid > 0 ? 'PARTIAL' : new Date(dueDate) < new Date() ? 'OVERDUE' : 'PENDING';
+    const fee = await prisma.fee.create({
+      data: { schoolId, studentId, title, amount, paid, status, dueDate },
     });
-  }
-
-  // ── Attendance history (last 12 school days, with a recent dip).
-  //    Today (d=0) is intentionally left un-marked so the live kiosks
-  //    (RFID + Face Recognition) have real students to mark on stage. ──
-  for (let d = 12; d >= 1; d--) {
-    const date = daysAgo(d);
-    const dow = new Date(date).getDay();
-    if (dow === 0 || dow === 6) continue; // skip weekends
-    // Base rate ~95%, dip in the last 3 days (simulating rainfall).
-    const base = d <= 2 ? 0.84 : 0.95;
-    // Only the last 5 school days get a matching AttendanceEvent — enough to
-    // populate Presence's live feed / late / peak-time / reader-usage
-    // analytics on first load without a slow full 12-day backfill.
-    const backfillEvents = d <= 5;
-    for (const s of students) {
-      const present = Math.random() < base;
-      const status = present ? 'PRESENT' : Math.random() < 0.4 ? 'LATE' : 'ABSENT';
-      const source = Math.random() < 0.5 ? 'RFID' : 'MANUAL';
-      await prisma.attendance.create({
-        data: { schoolId, studentId: s.id, classId: s.classId!, date, status, source },
-      });
-
-      if (backfillEvents && status !== 'ABSENT') {
-        const late = status === 'LATE';
-        const minute = late ? 15 + Math.floor(Math.random() * 30) : Math.floor(Math.random() * 20);
-        const timestamp = new Date(`${date}T07:5${late ? '9' : '0'}:00`);
-        timestamp.setMinutes(timestamp.getMinutes() + minute);
-        const entryReaders = readers.filter((r) => r.direction !== 'EXIT');
-        const reader = source === 'RFID' ? rand(entryReaders, s.rollNo + minute) : null;
-        await prisma.attendanceEvent.create({
-          data: {
-            schoolId,
-            studentId: s.id,
-            readerId: reader?.id,
-            source,
-            timestamp,
-            direction: 'ENTRY',
-            verificationStatus: late ? 'LATE' : 'VERIFIED',
-            late,
-            lateMinutes: late ? minute - 5 : null,
-          },
+    if (paid > 0) {
+      const n = opts.installments ?? (paid > 9000 && rnd() < 0.4 ? 2 : 1);
+      const due = new Date(dueDate);
+      let remaining = paid;
+      for (let k = 0; k < n; k++) {
+        const part = k === n - 1 ? remaining : Math.round(paid * 0.6);
+        remaining -= part;
+        const paidAt = new Date(due);
+        paidAt.setDate(paidAt.getDate() - (n - k) * (3 + Math.floor(rnd() * 9)));
+        paymentRows.push({
+          feeId: fee.id,
+          amount: part,
+          method: rand(payMethods, feeCount + k),
+          reference: `${rand(payMethods, feeCount + k) === 'CASH' ? 'RCPT' : 'TXN'}-2026-${String(feeCount * 3 + k).padStart(5, '0')}`,
+          paidAt,
         });
       }
     }
+  };
+
+  for (let i = 0; i < students.length; i++) {
+    const s = students[i];
+    const cls = classes.find((c) => c.id === s.classId)!;
+    const tuition = cls.grade >= 9 ? 14500 : cls.grade === 8 ? 13000 : 12500;
+
+    if (FEE_STRESS.has(i)) {
+      // Overdue with VARIED ages (15–63 days) and sizes — real aging buckets.
+      const age = [15, 22, 28, 36, 42, 51, 63][i % 7];
+      const partial = i % 3 === 0 ? Math.round(tuition * 0.35) : 0;
+      await addFee(s.id, 'Term 1 Tuition', tuition, daysAgo(age), partial);
+    } else if (i % 9 === 4) {
+      // A slice of ordinary partials — paid most, small balance, recent due.
+      await addFee(s.id, 'Term 1 Tuition', tuition, daysAgo(4 + (i % 6)), tuition - 2500, { installments: 2 });
+    } else {
+      // Paid in full, 1–2 installments, before the due date.
+      await addFee(s.id, 'Term 1 Tuition', tuition, daysAgo(4 + (i % 6)), tuition);
+    }
+
+    // Second head: Activity & Lab fee, due in the FUTURE → real PENDING rows.
+    // About a third of families have already paid it early.
+    await addFee(s.id, 'Activity & Lab Fee', cls.grade >= 8 ? 2800 : 2200, daysAhead(12 + (i % 9)), i % 3 === 0 ? (cls.grade >= 8 ? 2800 : 2200) : 0);
+  }
+  await prisma.payment.createMany({ data: paymentRows });
+
+  // ── Attendance history (last ~5 weeks ≈ 24 school days) — deep enough for
+  //    honest trends, weekday-deviation evidence and the at-risk index.
+  //    Today (d=0) is intentionally left un-marked so the live kiosks
+  //    (RFID + Face Recognition) have real students to mark on stage.
+  //    Designed patterns (see the risk-profile sets above) give the
+  //    early-warning demo REAL, differentiated stories:
+  //      · CHRONIC       — ~65% all term (the classic 10%+ missed-days case)
+  //      · DECLINING     — 97% first half → ~72% second half (trend evidence)
+  //      · MONDAY_SKEW   — absences cluster on Mondays (weekday evidence)
+  //      · OFTEN_LATE    — present but late ~40% of days (punctuality signal)
+  const HISTORY_DAYS = 34;
+  const schoolDayList: { date: string; dow: number; idx: number }[] = [];
+  for (let d = HISTORY_DAYS; d >= 1; d--) {
+    const date = daysAgo(d);
+    const dow = new Date(date).getDay();
+    if (dow === 0 || dow === 6) continue;
+    schoolDayList.push({ date, dow, idx: schoolDayList.length });
+  }
+  const totalSchoolDays = schoolDayList.length;
+  const entryReaders = readers.filter((r) => r.direction !== 'EXIT');
+
+  for (const { date, dow, idx } of schoolDayList) {
+    const daysFromToday = Math.round((Date.now() - new Date(date).getTime()) / 86400000);
+    // School-wide base ~95%, with a dip over the last 3 school days (rain).
+    const schoolBase = daysFromToday <= 4 ? 0.84 : 0.95;
+    const attRows: any[] = [];
+    const evtRows: any[] = [];
+    // Backfill AttendanceEvents only for the last 5 school days — enough for
+    // the live feed / peak-time / reader analytics without a huge event log.
+    const backfillEvents = daysFromToday <= 7;
+
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i];
+      let pPresent = schoolBase;
+      if (CHRONIC.has(i)) pPresent = 0.65;
+      if (DECLINING.has(i)) pPresent = idx < totalSchoolDays / 2 ? 0.97 : 0.72;
+      if (MONDAY_SKEW.has(i)) pPresent = dow === 1 ? 0.4 : 0.94;
+
+      const present = rnd() < pPresent;
+      let status: string;
+      if (!present) status = rnd() < 0.06 ? 'LEAVE' : 'ABSENT';
+      else if (OFTEN_LATE.has(i)) status = rnd() < 0.4 ? 'LATE' : 'PRESENT';
+      else status = rnd() < 0.05 ? 'LATE' : 'PRESENT';
+
+      const source = rnd() < 0.55 ? 'RFID' : 'MANUAL';
+      attRows.push({ schoolId, studentId: s.id, classId: s.classId!, date, status, source });
+
+      if (backfillEvents && status !== 'ABSENT' && status !== 'LEAVE') {
+        const late = status === 'LATE';
+        // Arrivals 07:42–08:04; late arrivals 08:10–08:40. lateMinutes is
+        // COMPUTED from the timestamp vs start+grace (08:05) — never invented.
+        const minutesAfter0742 = late ? 28 + Math.floor(rnd() * 31) : Math.floor(rnd() * 23); // on-time 07:42–08:04, late 08:10–08:40
+        const totalMin = 7 * 60 + 42 + minutesAfter0742;
+        const timestamp = new Date(`${date}T${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}:${String(Math.floor(rnd() * 60)).padStart(2, '0')}`);
+        const graceEnd = new Date(`${date}T08:05:00`);
+        const lateMinutes = late ? Math.max(1, Math.ceil((timestamp.getTime() - graceEnd.getTime()) / 60000)) : null;
+        const reader = source === 'RFID' ? rand(entryReaders, s.rollNo + minutesAfter0742) : null;
+        evtRows.push({
+          schoolId,
+          studentId: s.id,
+          readerId: reader?.id ?? null,
+          source,
+          timestamp,
+          direction: 'ENTRY',
+          verificationStatus: late ? 'LATE' : 'VERIFIED',
+          late,
+          lateMinutes,
+        });
+      }
+    }
+    await prisma.attendance.createMany({ data: attRows });
+    if (evtRows.length) await prisma.attendanceEvent.createMany({ data: evtRows });
   }
 
   // ── Documents (Lumen) — one in review, one verified ──
@@ -419,16 +533,30 @@ async function main() {
   // preview and the extraction panel are one-to-one. bloodGroup stays low
   // confidence so it drives the "needs review" workflow.
   const doc1Fields = [
-    { documentId: doc1.id, key: 'studentName', label: 'Student name', value: 'Aditi R. Menon', confidence: 0.99, cropX: 0.12, cropY: 0.14, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
-    { documentId: doc1.id, key: 'phone', label: 'Contact number', value: '+91 98••• ••210', confidence: 0.97, cropX: 0.12, cropY: 0.235, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
-    { documentId: doc1.id, key: 'bloodGroup', label: 'Blood group', value: 'B+', confidence: 0.61, cropX: 0.12, cropY: 0.33, cropW: 0.3, cropH: 0.055, status: 'REVIEW' },
-    { documentId: doc1.id, key: 'dob', label: 'Date of birth', value: '14 March 2016', confidence: 0.95, cropX: 0.12, cropY: 0.425, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
-    { documentId: doc1.id, key: 'className', label: 'Class applying for', value: 'Grade 8 · Section A', confidence: 0.93, cropX: 0.12, cropY: 0.52, cropW: 0.5, cropH: 0.055, status: 'AUTO' },
-    { documentId: doc1.id, key: 'address', label: 'Address', value: '18 Nandi Hills Road, Bengaluru 560001', confidence: 0.86, cropX: 0.12, cropY: 0.615, cropW: 0.7, cropH: 0.055, status: 'AUTO' },
-    { documentId: doc1.id, key: 'previousSchool', label: 'Previous school', value: 'Little Scholars Montessori', confidence: 0.9, cropX: 0.12, cropY: 0.71, cropW: 0.6, cropH: 0.055, status: 'AUTO' },
+    { documentId: doc1.id, key: 'studentName', label: 'Student name', value: 'Aditi R. Menon', confidence: 0.99, cropX: 0.12, cropY: 0.14, cropW: 0.5, cropH: 0.055, status: 'AUTO', expected: true, ocrConfidence: 0.99 },
+    { documentId: doc1.id, key: 'phone', label: 'Contact number', value: '+91 98••• ••210', confidence: 0.97, cropX: 0.12, cropY: 0.235, cropW: 0.5, cropH: 0.055, status: 'AUTO', expected: true, ocrConfidence: 0.96 },
+    // The honest OCR story: the engine read "8+", the normaliser repaired it
+    // to "B+" — rawValue keeps what was actually read, and the low composite
+    // confidence routes it to human review instead of silently trusting it.
+    { documentId: doc1.id, key: 'bloodGroup', label: 'Blood group', value: 'B+', rawValue: '8+', corrected: true, confidence: 0.61, cropX: 0.12, cropY: 0.33, cropW: 0.3, cropH: 0.055, status: 'REVIEW', ocrConfidence: 0.58 },
+    { documentId: doc1.id, key: 'dob', label: 'Date of birth', value: '14 March 2016', confidence: 0.95, cropX: 0.12, cropY: 0.425, cropW: 0.5, cropH: 0.055, status: 'AUTO', expected: true, ocrConfidence: 0.94 },
+    { documentId: doc1.id, key: 'className', label: 'Class applying for', value: 'Grade 8 · Section A', confidence: 0.93, cropX: 0.12, cropY: 0.52, cropW: 0.5, cropH: 0.055, status: 'AUTO', ocrConfidence: 0.92 },
+    { documentId: doc1.id, key: 'address', label: 'Address', value: '18 Prabhat Road, Pune 411004', confidence: 0.86, cropX: 0.12, cropY: 0.615, cropW: 0.7, cropH: 0.055, status: 'AUTO', ocrConfidence: 0.84 },
+    { documentId: doc1.id, key: 'previousSchool', label: 'Previous school', value: 'Little Scholars Montessori', confidence: 0.9, cropX: 0.12, cropY: 0.71, cropW: 0.6, cropH: 0.055, status: 'AUTO', ocrConfidence: 0.9 },
   ];
   await prisma.extractedField.createMany({ data: doc1Fields });
   const doc1Avg = doc1Fields.reduce((a, f) => a + f.confidence, 0) / doc1Fields.length;
+
+  // Its life story — the Processing History timeline must never render blank.
+  await prisma.documentActivity.createMany({
+    data: [
+      { documentId: doc1.id, kind: 'UPLOADED', actorName: 'Rahul Deshpande', detailString: toJson({ fileName: 'admission-aditi.jpg' }), createdAt: new Date(Date.now() - 3 * 3600_000) },
+      { documentId: doc1.id, kind: 'PROCESSED', actorName: 'Lumen', detailString: toJson({ fields: doc1Fields.length, ms: 1840, review: 1 }), createdAt: new Date(Date.now() - 3 * 3600_000 + 2000) },
+    ],
+  });
+  await prisma.documentInsight.create({
+    data: { documentId: doc1.id, kind: 'MISSING', severity: 'WARNING', message: 'Guardian phone number was not found on the form — required for the emergency-contact record.' },
+  });
 
   // Give the seeded document a real page preview so the Lumen viewer shows the
   // scan (with field-crop highlights), not a blank pane. Generated to match the
@@ -436,19 +564,61 @@ async function main() {
   const formJpeg = renderAdmissionForm(doc1Fields.map((f) => ({ label: f.label, value: f.value, cropX: f.cropX, cropY: f.cropY, cropW: f.cropW, cropH: f.cropH })));
   await savePagePreview(doc1.id, 0, formJpeg);
   await saveOriginal(doc1.id, 'admission-aditi.jpg', formJpeg);
-  await prisma.document.update({ where: { id: doc1.id }, data: { pageCount: 1, mimeType: 'image/jpeg', overallConfidence: doc1Avg } });
+  await prisma.document.update({
+    where: { id: doc1.id },
+    data: { pageCount: 1, mimeType: 'image/jpeg', overallConfidence: doc1Avg, processingMs: 1840, sizeBytes: formJpeg.length },
+  });
+
+  // ── Second document: fully VERIFIED — so the queue shows the whole
+  //    lifecycle (in review vs verified), exactly as the workflow produces it.
+  const doc2 = await prisma.document.create({
+    data: { schoolId, type: 'ADMISSION', fileName: 'admission-rohan.jpg', status: 'VERIFIED', overallConfidence: 0, processingMs: 1610 },
+  });
+  const doc2Fields = [
+    { documentId: doc2.id, key: 'studentName', label: 'Student name', value: 'Rohan S. Kulkarni', confidence: 0.99, cropX: 0.12, cropY: 0.14, cropW: 0.5, cropH: 0.055, status: 'CONFIRMED', expected: true, ocrConfidence: 0.99 },
+    { documentId: doc2.id, key: 'phone', label: 'Contact number', value: '+91 98••• ••418', confidence: 0.98, cropX: 0.12, cropY: 0.235, cropW: 0.5, cropH: 0.055, status: 'AUTO', expected: true, ocrConfidence: 0.97 },
+    { documentId: doc2.id, key: 'bloodGroup', label: 'Blood group', value: 'O+', confidence: 0.95, cropX: 0.12, cropY: 0.33, cropW: 0.3, cropH: 0.055, status: 'CONFIRMED', ocrConfidence: 0.94 },
+    { documentId: doc2.id, key: 'dob', label: 'Date of birth', value: '02 August 2015', confidence: 0.97, cropX: 0.12, cropY: 0.425, cropW: 0.5, cropH: 0.055, status: 'AUTO', expected: true, ocrConfidence: 0.96 },
+    { documentId: doc2.id, key: 'className', label: 'Class applying for', value: 'Grade 7 · Section A', confidence: 0.96, cropX: 0.12, cropY: 0.52, cropW: 0.5, cropH: 0.055, status: 'AUTO', ocrConfidence: 0.95 },
+    { documentId: doc2.id, key: 'address', label: 'Address', value: '42 Baner Road, Pune 411045', confidence: 0.92, cropX: 0.12, cropY: 0.615, cropW: 0.7, cropH: 0.055, status: 'AUTO', ocrConfidence: 0.9 },
+  ];
+  await prisma.extractedField.createMany({ data: doc2Fields });
+  const doc2Avg = doc2Fields.reduce((a, f) => a + f.confidence, 0) / doc2Fields.length;
+  const form2Jpeg = renderAdmissionForm(doc2Fields.map((f) => ({ label: f.label, value: f.value, cropX: f.cropX, cropY: f.cropY, cropW: f.cropW, cropH: f.cropH })));
+  await savePagePreview(doc2.id, 0, form2Jpeg);
+  await saveOriginal(doc2.id, 'admission-rohan.jpg', form2Jpeg);
+  await prisma.document.update({
+    where: { id: doc2.id },
+    data: { pageCount: 1, mimeType: 'image/jpeg', overallConfidence: doc2Avg, sizeBytes: form2Jpeg.length },
+  });
+  await prisma.documentActivity.createMany({
+    data: [
+      { documentId: doc2.id, kind: 'UPLOADED', actorName: 'Rahul Deshpande', detailString: toJson({ fileName: 'admission-rohan.jpg' }), createdAt: new Date(Date.now() - 26 * 3600_000) },
+      { documentId: doc2.id, kind: 'PROCESSED', actorName: 'Lumen', detailString: toJson({ fields: doc2Fields.length, ms: 1610, review: 2 }), createdAt: new Date(Date.now() - 26 * 3600_000 + 1800) },
+      { documentId: doc2.id, kind: 'FIELD_CONFIRMED', actorName: 'Rahul Deshpande', detailString: toJson({ key: 'studentName' }), createdAt: new Date(Date.now() - 25 * 3600_000) },
+      { documentId: doc2.id, kind: 'FIELD_CONFIRMED', actorName: 'Rahul Deshpande', detailString: toJson({ key: 'bloodGroup' }), createdAt: new Date(Date.now() - 25 * 3600_000 + 60_000) },
+      { documentId: doc2.id, kind: 'VERIFIED', actorName: 'Dr. Kavita Menon', detailString: toJson({ fields: doc2Fields.length }), createdAt: new Date(Date.now() - 24 * 3600_000) },
+    ],
+  });
 
   // ── Baseline Trust ledger — automated actions already taken (drives the
   //    "admin hours saved" counter honestly, and populates the audit timeline) ──
   // `reversible` must reflect whether a real reverser exists (see eventStore).
   // STUDENT_CREATED has one; DOCUMENT_PROCESSED does not — so we say so.
+  // Zero-fake-AI rule applies to the seed too: the ledger may only contain
+  // actions that CORRESPOND TO REAL ROWS in this database. Student-creation
+  // events are honestly labelled as an import (not "Lumen"), and the only
+  // AI-log rows written here describe the two documents that genuinely exist
+  // with their real field counts and confidences. Kairos writes its own
+  // honest log when generateDraft actually runs below — no hand-written
+  // duplicates, no phantom "CV captures" without matching attendance events.
   const eventRows = students.map((s, i) => ({
     schoolId,
     type: 'STUDENT_CREATED',
     aggregate: 'Student',
     aggregateId: s.id,
     payloadString: toJson({ studentId: s.id, name: s.name }),
-    actorName: 'Admissions intake (Lumen)',
+    actorName: 'Admissions import',
     reversible: true,
     createdAt: new Date(Date.now() - (i % 20) * 3600_000),
   }));
@@ -459,18 +629,12 @@ async function main() {
   } as any);
   await prisma.event.createMany({ data: eventRows });
 
-  const aiRows: any[] = [
-    { schoolId, engine: 'KAIROS', action: 'Timetable solve', reason: 'CP feasibility + soft refine', confidence: 0.86, inputString: toJson({}), outputString: toJson({ placed: 174 }) },
-    { schoolId, engine: 'LUMEN', action: 'Document extraction', reason: `${doc1Fields.length} fields · ${Math.round(doc1Avg * 100)}% avg confidence`, confidence: doc1Avg, inputString: toJson({ type: 'ADMISSION' }), outputString: toJson({ fields: doc1Fields.length }) },
-  ];
-  for (let i = 0; i < 18; i++) {
-    const st = students[i];
-    aiRows.push({ schoolId, engine: 'PRESENCE', action: 'CV attendance capture', reason: 'Edge embedding matched — zero image stored', confidence: 0.9 + (i % 9) / 100, inputString: toJson({}), outputString: toJson({ student: st.name }), createdAt: new Date(Date.now() - i * 1200_000) });
-  }
-  for (let i = 0; i < 4; i++) {
-    aiRows.push({ schoolId, engine: 'COPILOT', action: 'Grounded answer', reason: 'Answered from live event store', confidence: 0.85, inputString: toJson({}), outputString: toJson({}) });
-  }
-  await prisma.aILog.createMany({ data: aiRows });
+  await prisma.aILog.createMany({
+    data: [
+      { schoolId, engine: 'LUMEN', action: 'Document extraction', reason: `${doc1Fields.length} fields · ${Math.round(doc1Avg * 100)}% avg confidence · 1 routed to review`, confidence: doc1Avg, inputString: toJson({ documentId: doc1.id, type: 'ADMISSION' }), outputString: toJson({ fields: doc1Fields.length, review: 1 }), createdAt: new Date(Date.now() - 3 * 3600_000) },
+      { schoolId, engine: 'LUMEN', action: 'Document extraction', reason: `${doc2Fields.length} fields · ${Math.round(doc2Avg * 100)}% avg confidence`, confidence: doc2Avg, inputString: toJson({ documentId: doc2.id, type: 'ADMISSION' }), outputString: toJson({ fields: doc2Fields.length, review: 2 }), createdAt: new Date(Date.now() - 26 * 3600_000) },
+    ],
+  });
 
   // ── Timetable (Kairos) — run the real production workflow:
   //    generate draft → principal approves → principal publishes v1.
@@ -488,6 +652,69 @@ async function main() {
   await approveDraft(schoolId, principal);
   await publishDraft(schoolId, principal);
 
+  // ── Staff absence history (last ~7 weeks) with real cover records — this
+  //    is what makes the substitute-demand forecast honest instead of
+  //    permanently "insufficient evidence: zero absence history". Absences
+  //    skew Monday/Friday (the real-world pattern the forecaster looks for);
+  //    covers reference REAL slots of the published timetable and honestly
+  //    leave some periods uncovered.
+  const liveTT = await prisma.timetable.findFirst({ where: { schoolId, active: true }, include: { slots: true } });
+  const subjCodeById = new Map(subjects.map((s) => [s.id, s.code]));
+  const teacherSubjects = new Map(teachers.map((t, i) => [t.id, teacherDefs[i].subjects]));
+  const absentOn = new Map<string, Set<string>>(); // date → teacherIds
+  const coverLoad = new Map<string, number>(); // fairness: covers taken this term
+  let absenceCount = 0, coverCount = 0;
+
+  for (let d = 49; d >= 3; d--) {
+    const date = daysAgo(d);
+    const dow = new Date(date).getDay();
+    if (dow === 0 || dow === 6) continue;
+    const dayIdx = dow - 1; // Mon=0 … Fri=4
+    const pAbsent = dow === 1 ? 0.07 : dow === 5 ? 0.055 : 0.032;
+    for (const t of teachers) {
+      if (rnd() >= pAbsent) continue;
+      if (!absentOn.has(date)) absentOn.set(date, new Set());
+      absentOn.get(date)!.add(t.id);
+      const absence = await prisma.staffAbsence.create({
+        data: {
+          teacherId: t.id,
+          date,
+          reason: rand(['Medical leave', 'Family function', 'Official duty', 'Personal leave'], absenceCount),
+          createdAt: new Date(`${date}T07:15:00`),
+        },
+      });
+      absenceCount++;
+
+      // Cover the absent teacher's real periods that day where a qualified
+      // colleague exists — capped, so some periods stay honestly uncovered.
+      const slots = (liveTT?.slots ?? []).filter((sl) => sl.teacherId === t.id && sl.day === dayIdx).slice(0, 4);
+      for (const sl of slots) {
+        const code = subjCodeById.get(sl.subjectId)!;
+        const candidates = teachers
+          .filter((c) => c.id !== t.id && !absentOn.get(date)?.has(c.id) && (teacherSubjects.get(c.id) ?? []).includes(code))
+          .sort((a, b) => (coverLoad.get(a.id) ?? 0) - (coverLoad.get(b.id) ?? 0));
+        const sub = candidates[0];
+        if (!sub || rnd() < 0.2) continue; // no qualified cover found that period
+        coverLoad.set(sub.id, (coverLoad.get(sub.id) ?? 0) + 1);
+        coverCount++;
+        await prisma.substitution.create({
+          data: {
+            absenceId: absence.id,
+            subTeacherId: sub.id,
+            day: dayIdx,
+            period: sl.period,
+            classId: sl.classId,
+            subjectId: sl.subjectId,
+            reasonString: toJson([`Qualified for ${code}`, 'Lowest cover load among qualified staff at assignment time']),
+            confidence: 0.8 + Math.round(rnd() * 15) / 100,
+            accepted: true,
+            createdAt: new Date(`${date}T07:25:00`),
+          },
+        });
+      }
+    }
+  }
+
   // ── Settings ──
   await prisma.setting.create({ data: { schoolId, key: 'branding', valueString: toJson({ primary: '#8B5CF6', accent: '#00E5FF' }) } });
 
@@ -501,6 +728,9 @@ async function main() {
   console.log('     parent@meridian.school      (PARENT)');
   console.log(`   Students: ${students.length}, Teachers: ${teachers.length}, Classes: ${classes.length}`);
   console.log(`   Presence: ${readers.length} readers, ${students.length} RFID cards issued`);
+  console.log(`   History: ${totalSchoolDays} school days of attendance · ${absenceCount} staff absences with ${coverCount} covers`);
+  console.log(`   Fees: ${feeCount} fee heads with ${paymentRows.length} payment records (ledger arithmetic exact)`);
+  console.log('   Deterministic: re-running this seed reproduces the identical school.');
 }
 
 main()

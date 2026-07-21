@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Meridian Public School — Student Admission Form (blank)</title>
+<style>
+  /* Print-first: A4, high contrast, generous rows for BLOCK letters.
+     Every printed label below matches a Lumen template anchor verbatim,
+     and the headline carries the classifier's strongest signals. */
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; width: 186mm; margin: 0 auto; padding: 4mm 0; }
+  .sheet { border: 2.5px solid #111; padding: 7mm 8mm; }
+
+  header { text-align: center; border-bottom: 2px solid #111; padding-bottom: 4mm; position: relative; }
+  .school { font-size: 21px; font-weight: bold; letter-spacing: 1.5px; }
+  .sub { font-size: 10.5px; margin-top: 1mm; }
+  h1 { font-size: 16.5px; letter-spacing: 3px; margin-top: 3.5mm; }
+  .apply { font-size: 10px; margin-top: 1mm; font-style: italic; }
+  .photo { position: absolute; right: 0; top: 0; width: 26mm; height: 32mm; border: 1.2px solid #111;
+           font-size: 7.5px; text-align: center; padding-top: 12mm; color: #333; font-family: Arial, sans-serif; }
+
+  .instr { margin: 3.5mm 0 2.5mm; font-family: Arial, sans-serif; font-size: 9.5px; font-weight: bold;
+           text-align: center; letter-spacing: 0.4px; }
+
+  .row { display: flex; align-items: flex-end; gap: 4mm; margin-top: 5.2mm; }
+  .f { display: flex; align-items: flex-end; flex: 1; }
+  .f label { font-size: 11.5px; font-weight: bold; white-space: nowrap; padding-right: 2.5mm; }
+  .line { flex: 1; border-bottom: 1.1px dotted #777; height: 7.5mm; }
+  .narrow { flex: 0 0 34mm; }
+  .section-title { margin-top: 6mm; padding: 1.5mm 2.5mm; background: #eee; border: 1px solid #111;
+                   font-size: 10.5px; font-weight: bold; letter-spacing: 1.2px; font-family: Arial, sans-serif; }
+
+  .office { margin-top: 6mm; border: 1.4px solid #111; padding: 3mm 3.5mm 4.5mm; }
+  .office .head { font-size: 9.5px; font-weight: bold; letter-spacing: 1px; font-family: Arial, sans-serif; }
+
+  .sig { display: flex; justify-content: space-between; margin-top: 9mm; gap: 10mm; }
+  .sigbox { flex: 1; text-align: center; }
+  .sigline { border-bottom: 1.1px solid #111; height: 12mm; }
+  .sigbox span { font-size: 10.5px; font-weight: bold; }
+
+  footer { margin-top: 4.5mm; font-size: 8px; color: #444; text-align: center; font-family: Arial, sans-serif; }
+  @media screen { body { background: #f3f4f6; padding: 8mm 0; } .sheet { background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.15); } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div class="photo">Affix recent photograph</div>
+    <div class="school">MERIDIAN PUBLIC SCHOOL</div>
+    <div class="sub">Pune, Maharashtra &nbsp;·&nbsp; Phone: +91 20 1234 5678 &nbsp;·&nbsp; Academic Year 2026–27</div>
+    <h1>STUDENT ADMISSION FORM</h1>
+    <div class="apply">Application for Admission</div>
+  </header>
+
+  <div class="instr">PLEASE FILL IN BLOCK CAPITALS USING A BLUE OR BLACK PEN</div>
+
+  <div class="section-title">STUDENT DETAILS</div>
+  <div class="row"><div class="f"><label>Student Name :</label><div class="line"></div></div></div>
+  <div class="row">
+    <div class="f"><label>Date of Birth :</label><div class="line"></div></div>
+    <div class="f narrow"><label>Gender :</label><div class="line"></div></div>
+    <div class="f narrow"><label>Blood Group :</label><div class="line"></div></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>Class Applied For :</label><div class="line"></div></div>
+    <div class="f narrow"><label>Section :</label><div class="line"></div></div>
+    <div class="f"><label>Nationality :</label><div class="line"></div></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>Previous School :</label><div class="line"></div></div>
+  </div>
+  <div class="row">
+    <div class="f"><label>Category :</label><div class="line"></div></div>
+  </div>
+
+  <div class="section-title">PARENT / GUARDIAN DETAILS</div>
+  <div class="row"><div class="f"><label>Father's Name :</label><div class="line"></div></div></div>
+  <div class="row"><div class="f"><label>Mother's Name :</label><div class="line"></div></div></div>
+  <div class="row"><div class="f"><label>Guardian Name :</label><div class="line"></div></div></div>
+
+  <div class="section-title">CONTACT DETAILS</div>
+  <div class="row">
+    <div class="f"><label>Contact Number :</label><div class="line"></div></div>
+    <div class="f"><label>Emergency Contact :</label><div class="line"></div></div>
+  </div>
+  <div class="row"><div class="f"><label>Email :</label><div class="line"></div></div></div>
+  <div class="row"><div class="f"><label>Address :</label><div class="line"></div></div></div>
+  <div class="row"><div class="f"><div class="line"></div></div></div>
+  <div class="row">
+    <div class="f narrow" style="flex:0 0 60mm"><label>PIN Code :</label><div class="line"></div></div>
+  </div>
+
+  <div class="office">
+    <div class="head">FOR OFFICE USE ONLY</div>
+    <div class="row" style="margin-top:3.5mm">
+      <div class="f"><label>Admission No :</label><div class="line"></div></div>
+      <div class="f"><label>Date of Admission :</label><div class="line"></div></div>
+    </div>
+  </div>
+
+  <div class="sig">
+    <div class="sigbox"><div class="sigline"></div><span>Parent's Signature</span></div>
+    <div class="sigbox"><div class="sigline"></div><span>Principal's Signature</span></div>
+  </div>
+
+  <footer>Meridian Public School · Admission Form v2 · Please attach photocopies of the birth certificate and previous report card.</footer>
+</div>
+</body>
+</html>

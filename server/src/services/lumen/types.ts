@@ -87,7 +87,7 @@ export interface FieldSpec {
   type: FieldType;
   /** Label variants as printed on real forms. Matched fuzzily, OCR-aware. */
   anchors: string[];
-  required?: boolean;
+  expected?: boolean;
   /** Constrain to a set of allowed values (gender, blood group, …). */
   options?: string[];
   /** Numeric bounds for integer/decimal/percentage/money. */
@@ -108,7 +108,7 @@ export interface DocTemplate {
 }
 
 export type FieldSource = 'TEXT_LAYER' | 'OCR' | 'REGEX' | 'AI' | 'DERIVED';
-export type FieldStatus = 'AUTO' | 'REVIEW' | 'CONFIRMED' | 'MISSING';
+export type FieldStatus = 'AUTO' | 'REVIEW' | 'CONFIRMED' | 'MISSING' | 'ABSENT';
 
 export interface ExtractedValue {
   key: string;
@@ -125,7 +125,7 @@ export interface ExtractedValue {
   valid: boolean;
   validationMessage?: string;
   corrected: boolean;
-  required: boolean;
+  expected: boolean;
 }
 
 export interface Insight {

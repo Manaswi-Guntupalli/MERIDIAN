@@ -197,12 +197,21 @@ export interface ExtractedField {
   cropY: number;
   cropW: number;
   cropH: number;
-  status: 'AUTO' | 'REVIEW' | 'CONFIRMED' | 'MISSING';
+  status: 'AUTO' | 'REVIEW' | 'CONFIRMED' | 'MISSING' | 'ABSENT';
   source: 'TEXT_LAYER' | 'OCR' | 'REGEX' | 'AI' | 'DERIVED';
   valid: boolean;
   validationMessage: string | null;
   corrected: boolean;
-  required: boolean;
+  /** Template property: this document type normally carries this field.
+   *  Whether the ERP requires it before commit is the school's policy. */
+  expected: boolean;
+}
+
+/** School commit policy vs extracted fields — why a commit is (not) ready. */
+export interface CommitReadiness {
+  ready: boolean;
+  missing: { key: string; label: string }[];
+  policy: string[];
 }
 
 export interface DocPage {
@@ -233,6 +242,7 @@ export interface DocInsight {
 
 export interface DocDetail extends Omit<DocSummary, 'fieldCount' | 'needsReview' | 'criticalInsights'> {
   commits: 'STUDENT' | 'TEACHER' | null;
+  commitReadiness: CommitReadiness | null;
   correctionCount: number;
   fields: ExtractedField[];
   pages: DocPage[];

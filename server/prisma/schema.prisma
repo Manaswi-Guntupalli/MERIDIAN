@@ -469,7 +469,11 @@ model ExtractedField {
   valid      Boolean  @default(true)
   validationMessage String?
   corrected  Boolean  @default(false)           // normaliser or AI repaired the raw read
-  required   Boolean  @default(false)
+  // TEMPLATE property: this document type normally carries this field.
+  // Whether the ERP requires it before commit is a separate, school-configured
+  // policy (Setting: lumen.commitPolicy.*) — never this flag.
+  // @map keeps the original column name — code renamed, zero data migration.
+  expected   Boolean  @default(false) @map("required")
 
   @@index([documentId, status])
 }

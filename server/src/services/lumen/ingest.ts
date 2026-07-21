@@ -38,6 +38,9 @@ const asDirUrl = (dir: string) => pathToFileURL(dir).href.replace(/\/?$/, '/');
 const STANDARD_FONT_DATA_URL = asDirUrl(path.join(PDFJS_ROOT, 'standard_fonts'));
 const CMAP_URL = asDirUrl(path.join(PDFJS_ROOT, 'cmaps'));
 
+/** Most school forms are 1–4 pages; anything beyond this is a mis-upload. */
+export const MAX_PDF_PAGES = 20;
+
 /** Render target for OCR — ~260 DPI on A4, the sweet spot for Tesseract. */
 const OCR_RENDER_WIDTH = 2200;
 /** Cheaper render for pages we'll read from the text layer (preview only). */
@@ -112,6 +115,53 @@ function itemToWords(item: any, viewport: any): Word[] {
     cursor += tokenWidth;
   }
   return words;
+}
+
+// Digitally-filled PDFs put their typed values in the ANNOTATION layer — form
+// fields (AcroForm) or markup text — which getTextContent() never returns; it
+// reads only the printed page content, i.e. our labels. Without this, a form
+// filled on a laptop extracts every label and no value. We read the
+// annotations and place their text at the right coordinates so the fast text
+// path sees the values exactly where a human sees them on the page.
+function annotationText(a: any): string {
+  if (typeof a?.fieldValue === 'string') return a.fieldValue;
+  if (Array.isArray(a?.fieldValue)) return a.fieldValue.join(' ');
+  if (typeof a?.contents === 'string') return a.contents;
+  return '';
+}
+
+function annotationWords(annotations: any[], viewport: any): Word[] {
+  const out: Word[] = [];
+  for (const a of annotations) {
+    const text = annotationText(a).trim();
+    if (!text || !Array.isArray(a.rect) || a.rect.length < 4) continue;
+    // rect is PDF user space (origin bottom-left); transform its two corners
+    // into the same top-left viewport space the content-stream words live in.
+    // (This pdfjs build's applyTransform mutates its array argument in place.)
+    const apply = pdfjs.Util.applyTransform as (p: number[], m: number[]) => void;
+    const p1 = [a.rect[0], a.rect[1]];
+    const p2 = [a.rect[2], a.rect[3]];
+    apply(p1, viewport.transform);
+    apply(p2, viewport.transform);
+    const x0 = Math.min(p1[0], p2[0]);
+    const y0 = Math.min(p1[1], p2[1]);
+    const x1 = Math.max(p1[0], p2[0]);
+    const y1 = Math.max(p1[1], p2[1]);
+    const width = Math.max(2, x1 - x0);
+    if (width < 3 || y1 - y0 < 2) continue;
+    // Distribute the value's tokens across the field's box. Approximate, but
+    // buildLines only needs each word on the right line and to the right of
+    // its label — which is exactly what a filled field's rect gives us.
+    const tokens = text.split(/\s+/).filter(Boolean);
+    const chars = tokens.join('').length || 1;
+    let cursor = x0;
+    for (const token of tokens) {
+      const tw = Math.max(3, (token.length / chars) * width);
+      out.push({ text: token, conf: 1, x0: cursor, y0, x1: Math.min(x1, cursor + tw), y1 });
+      cursor += tw + width * 0.02;
+    }
+  }
+  return out;
 }
 
 async function renderPage(page: any, targetWidth: number): Promise<{ buffer: Buffer; scale: number; viewport: any }> {
@@ -257,6 +307,14 @@ async function ingestPdf(buffer: Buffer, onProgress?: IngestProgress): Promise<I
   }
 
   if (pdf.numPages < 1) throw badRequest('This PDF contains no pages.');
+  // School forms are 1–4 pages; OCR-ing a 60-page scan would tie up the
+  // pipeline for minutes. Reject with the numbers rather than truncating —
+  // silently reading only part of a document would be a lie of omission.
+  if (pdf.numPages > MAX_PDF_PAGES) {
+    throw badRequest(
+      `This PDF has ${pdf.numPages} pages — Lumen processes forms of up to ${MAX_PDF_PAGES} pages per file. Split the file and upload the parts separately.`,
+    );
+  }
 
   const pages: IngestedPage[] = [];
   for (let i = 0; i < pdf.numPages; i++) {
@@ -269,13 +327,30 @@ async function ingestPdf(buffer: Buffer, onProgress?: IngestProgress): Promise<I
     const rawText = content.items.map((it: any) => it.str ?? '').join('');
     const charCount = rawText.replace(/\s/g, '').length;
 
+    // Values typed into a PDF live here, not in the content stream above.
+    const annotations: any[] = (await page.getAnnotations().catch(() => [])).filter(
+      (a: any) => a && (a.subtype === 'Widget' || a.subtype === 'FreeText' || a.subtype === 'Stamp'),
+    );
+
     if (charCount >= TEXT_LAYER_MIN_CHARS) {
       // ── Fast path: the file already knows what it says. ──
       const { buffer: raster, viewport } = await renderPage(page, PREVIEW_RENDER_WIDTH);
+      const annotWords = annotationWords(annotations, viewport);
+
+      // Appearance-only fills (rare — no readable field value, just a baked-in
+      // look) leave no annotation text. The rendered raster still shows them,
+      // so drop to OCR rather than silently returning label-only values.
+      if (annotations.length > 0 && annotWords.length === 0) {
+        const { buffer: ocrRaster } = await renderPage(page, OCR_RENDER_WIDTH);
+        pages.push(await ocrImagePage(i, ocrRaster, pageWidthInches, onProgress, pdf.numPages));
+        continue;
+      }
+
       const words: Word[] = [];
       for (const item of content.items) {
         if ((item as any).str !== undefined) words.push(...itemToWords(item, viewport));
       }
+      words.push(...annotWords);
       const lines = buildLines(words);
       pages.push({
         index: i,
@@ -288,7 +363,11 @@ async function ingestPdf(buffer: Buffer, onProgress?: IngestProgress): Promise<I
         words,
         lines,
         text: lines.map((l) => l.text).join('\n'),
-        quality: perfectQuality(['Digital PDF — text read directly, no OCR needed.']),
+        quality: perfectQuality([
+          annotWords.length
+            ? 'Digital PDF — printed text read directly, plus values read from the filled form/annotation layer.'
+            : 'Digital PDF — text read directly, no OCR needed.',
+        ]),
         previewJpeg: await makePreview(raster),
         workBuffer: raster, // unused on this path — re-reads only apply to OCR pages
       });

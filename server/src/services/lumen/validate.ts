@@ -37,7 +37,7 @@ export function validateField(value: string, spec: FieldSpec): ValidationResult 
   const v = value.trim();
 
   if (!v) {
-    return spec.required ? bad(`${spec.label} is required but was not found.`) : ok;
+    return spec.expected ? bad(`${spec.label} is expected on this document but was not found.`) : ok;
   }
 
   switch (spec.type) {

@@ -14,6 +14,11 @@ async function admissionDoc(schoolId: string, className: string) {
     data: [
       { documentId: doc.id, key: 'studentName', label: 'Student name', value: 'Test Child', confidence: 0.99, status: 'AUTO', ...crop },
       { documentId: doc.id, key: 'className', label: 'Class', value: className, confidence: 0.95, status: 'AUTO', ...crop },
+      // Satisfy the school's default commit policy (studentName, dob, phone) —
+      // these tests are about CLASS validation, not policy gating (that has
+      // its own suite in lumen-policy.test.ts).
+      { documentId: doc.id, key: 'dob', label: 'Date of birth', value: '2014-04-09', confidence: 0.97, status: 'AUTO', ...crop },
+      { documentId: doc.id, key: 'phone', label: 'Contact number', value: '+91 9822011223', confidence: 0.96, status: 'AUTO', ...crop },
     ],
   });
   return doc;

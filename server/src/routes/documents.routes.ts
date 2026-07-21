@@ -18,11 +18,13 @@ import { prisma } from '../lib/prisma.js';
 import { asyncHandler, badRequest, notFound } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { recordEvent } from '../services/eventStore.js';
-import { logAI } from '../services/trustLedger.js';
+import { logAI, auditLog } from '../services/trustLedger.js';
+import { validateBody } from '../utils/validate.js';
 import { emitToSchool } from '../lib/socket.js';
 import { env } from '../config/env.js';
 import { STAFF_ADMIN } from '../utils/constants.js';
-import { processDocument, TEMPLATE_CHOICES, templateFor } from '../services/lumen/index.js';
+import { processDocument, TEMPLATE_CHOICES, templateFor, docTypeLabel } from '../services/lumen/index.js';
+import { getCommitPolicy, setCommitPolicy, commitReadiness, policyFieldChoices, DEFAULT_COMMIT_POLICY, type CommitKind } from '../services/lumen/policy.js';
 import { commitDocument } from '../services/lumen/commit.js';
 import { toCSV, toJSONExport, toXLSX, type ExportableDoc } from '../services/lumen/export.js';
 import { saveOriginal, readOriginal, readPagePreview, purgeDocument, sniffFile } from '../services/lumen/storage.js';
@@ -97,7 +99,7 @@ async function runJob(job: Job): Promise<void> {
           valid: f.valid,
           validationMessage: f.validationMessage ?? null,
           corrected: f.corrected,
-          required: f.required,
+          expected: f.expected,
         })),
       }),
       prisma.documentPage.createMany({
@@ -143,7 +145,7 @@ async function runJob(job: Job): Promise<void> {
       engine: 'LUMEN',
       action: 'Document extraction',
       reason:
-        `${templateFor(result.type).label}: ${result.fields.filter((f) => f.value).length}/${result.fields.length} fields read, ` +
+        `${docTypeLabel(result.type)}: ${result.fields.filter((f) => f.value).length}/${result.fields.length} fields read, ` +
         `${Math.round(result.overallConfidence * 100)}% confidence, ` +
         `${result.pages.every((p) => p.source === 'TEXT_LAYER') ? 'digital text layer' : 'OCR pipeline'}, ${result.processingMs}ms`,
       confidence: result.overallConfidence,
@@ -163,7 +165,7 @@ async function runJob(job: Job): Promise<void> {
         kind: 'PROCESSED',
         detailString: JSON.stringify({
           type: result.type,
-          typeLabel: templateFor(result.type).label,
+          typeLabel: docTypeLabel(result.type),
           confidence: result.overallConfidence,
           ms: result.processingMs,
           pages: result.pages.length,
@@ -226,7 +228,7 @@ router.get(
       documents: docs.map((d) => ({
         id: d.id,
         type: d.type,
-        typeLabel: templateFor(d.type).label,
+        typeLabel: docTypeLabel(d.type),
         fileName: d.fileName,
         status: d.status,
         overallConfidence: d.overallConfidence,
@@ -285,6 +287,49 @@ router.get(
   }),
 );
 
+// ── School commit policy — which fields the ERP requires before a record is
+// created. A business rule owned by the school, NOT the document templates:
+// the pipeline never fails because a policy-optional field was off the form.
+router.get(
+  '/commit-policy',
+  authorize(...STAFF_ADMIN),
+  asyncHandler(async (req, res) => {
+    const schoolId = req.user!.schoolId;
+    const kinds: CommitKind[] = ['STUDENT', 'TEACHER'];
+    const policy: Record<string, unknown> = {};
+    for (const kind of kinds) {
+      policy[kind] = {
+        required: await getCommitPolicy(schoolId, kind),
+        defaults: DEFAULT_COMMIT_POLICY[kind],
+        available: policyFieldChoices(kind),
+      };
+    }
+    res.json({ policy });
+  }),
+);
+
+const policySchema = z.object({
+  kind: z.enum(['STUDENT', 'TEACHER']),
+  required: z.array(z.string()).max(40),
+});
+router.put(
+  '/commit-policy',
+  authorize(...STAFF_ADMIN),
+  validateBody(policySchema),
+  asyncHandler(async (req, res) => {
+    const { kind, required } = req.body as z.infer<typeof policySchema>;
+    const saved = await setCommitPolicy(req.user!.schoolId, kind, required);
+    await auditLog({
+      schoolId: req.user!.schoolId,
+      actorId: req.user!.sub,
+      action: 'LUMEN_COMMIT_POLICY_CHANGED',
+      entity: 'Setting',
+      meta: { kind, required: saved },
+    });
+    res.json({ kind, required: saved });
+  }),
+);
+
 router.get('/templates', (_req, res) => {
   res.json({ templates: TEMPLATE_CHOICES });
 });
@@ -301,11 +346,19 @@ router.get(
       },
     });
     if (!doc) throw notFound('Document not found');
+    // Commit readiness = school policy vs extracted fields. Computed here so
+    // the UI can show WHY a commit is blocked, with named fields, before the
+    // user ever clicks the button.
+    const commitsKind = doc.type === 'UNKNOWN' ? null : templateFor(doc.type).commits ?? null;
+    const readiness = commitsKind
+      ? commitReadiness(await getCommitPolicy(req.user!.schoolId, commitsKind), doc.fields)
+      : null;
     res.json({
       document: {
         ...doc,
-        typeLabel: templateFor(doc.type).label,
-        commits: templateFor(doc.type).commits ?? null,
+        typeLabel: docTypeLabel(doc.type),
+        commits: commitsKind,
+        commitReadiness: readiness,
         pipeline: doc.pipelineString ? JSON.parse(doc.pipelineString) : null,
         pipelineString: undefined,
         rawText: undefined, // heavy; fetch via /:id/text if ever needed
@@ -598,7 +651,7 @@ router.post(
     const exportable: ExportableDoc[] = docs.map((d) => ({
       id: d.id,
       fileName: d.fileName,
-      type: templateFor(d.type).label,
+      type: docTypeLabel(d.type),
       status: d.status,
       overallConfidence: d.overallConfidence,
       createdAt: d.createdAt,

@@ -24,7 +24,7 @@ import { extractFields } from './extract.js';
 import { crossValidate } from './validate.js';
 import { aiRefine, findDuplicates, missingFieldInsights, qualityInsights } from './postprocess.js';
 import { documentConfidence, statusFor } from './confidence.js';
-import { templateFor } from './templates.js';
+import { templateFor, docTypeLabel } from './templates.js';
 import { inkInRegion } from './preprocess.js';
 import { savePagePreview } from './storage.js';
 import type { Insight, ProcessResult, StageTiming } from './types.js';
@@ -125,7 +125,7 @@ export async function processDocument(
         detail: classification.ranked,
       });
     }
-    timings[timings.length - 1].note = `${template.label} @ ${Math.round(classification.confidence * 100)}%`;
+    timings[timings.length - 1].note = `${docTypeLabel(type)} @ ${Math.round(classification.confidence * 100)}%`;
   }
 
   // ── 3. Extract ──
@@ -161,7 +161,7 @@ export async function processDocument(
   for (const f of fields) {
     if (cross.flagKeys.has(f.key) && f.value.trim()) {
       f.confidence = Math.min(f.confidence, 0.7);
-      f.status = statusFor(f.confidence, f.valid, f.value, f.required);
+      f.status = statusFor(f.confidence, f.valid, f.value, f.expected);
     }
   }
 
@@ -206,7 +206,7 @@ export async function processDocument(
   };
 }
 
-export { TEMPLATES, TEMPLATE_CHOICES, templateFor } from './templates.js';
+export { TEMPLATES, TEMPLATE_CHOICES, templateFor, docTypeLabel } from './templates.js';
 export { shutdownOcr } from './ocr.js';
 export { AUTO_ACCEPT } from './confidence.js';
 export type { ProcessResult, ExtractedValue, Insight } from './types.js';

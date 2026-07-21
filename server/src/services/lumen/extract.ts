@@ -587,7 +587,7 @@ export async function extractFields(
         source: 'DERIVED',
         valid: true,
         corrected: false,
-        required: Boolean(spec.required),
+        expected: Boolean(spec.expected),
         validationMessage: present ? undefined : 'No ink found in the signature area — check the original.',
       });
       continue;
@@ -683,12 +683,12 @@ export async function extractFields(
       ocrConfidence: Number(ocrConfidence.toFixed(4)),
       page: pageIndex,
       crop: cropOf(words, page),
-      status: statusFor(confidence, validation.valid, normalised.value, Boolean(spec.required)),
+      status: statusFor(confidence, validation.valid, normalised.value, Boolean(spec.expected)),
       source,
       valid: validation.valid,
       validationMessage: notes || undefined,
       corrected: normalised.corrected || rereadUsed,
-      required: Boolean(spec.required),
+      expected: Boolean(spec.expected),
     });
   }
 

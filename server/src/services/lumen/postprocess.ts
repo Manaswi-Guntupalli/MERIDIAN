@@ -181,7 +181,7 @@ export async function aiRefine(
     field.corrected = true;
     field.valid = validation.valid;
     field.validationMessage = validation.message;
-    field.status = statusFor(confidence, validation.valid, normalised.value, field.required);
+    field.status = statusFor(confidence, validation.valid, normalised.value, field.expected);
     applied++;
   }
 
@@ -313,7 +313,7 @@ export async function findDuplicates(
 
 /** Mandatory fields we failed to find — stated plainly, not buried. */
 export function missingFieldInsights(fields: ExtractedValue[]): Insight[] {
-  const missing = fields.filter((f) => f.required && !f.value.trim());
+  const missing = fields.filter((f) => f.expected && !f.value.trim());
   if (!missing.length) return [];
   return [
     {

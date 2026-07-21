@@ -777,11 +777,25 @@ function DetailPanel({ docId, onClose }: { docId: string; onClose: () => void })
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {doc.status === 'VERIFIED' && doc.commits && (
-                  <button onClick={() => commit.mutate()} disabled={commit.isPending} className="btn-primary !py-2 text-xs">
+                  <button
+                    onClick={() => commit.mutate()}
+                    disabled={commit.isPending || doc.commitReadiness?.ready === false}
+                    className="btn-primary !py-2 text-xs"
+                  >
                     {commit.isPending ? <Spinner /> : <UserPlus className="h-3.5 w-3.5" />}
                     Create {doc.commits === 'STUDENT' ? 'student' : 'staff'} record
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
+                )}
+                {doc.status === 'VERIFIED' && doc.commitReadiness && !doc.commitReadiness.ready && (
+                  <span className="flex flex-wrap items-center gap-1.5 text-[0.7rem] text-amber-700">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    School policy needs{' '}
+                    {doc.commitReadiness.missing.map((m) => (
+                      <span key={m.key} className="rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 font-semibold">{m.label}</span>
+                    ))}
+                    — fill above, or relax the policy.
+                  </span>
                 )}
                 {doc.status === 'COMMITTED' && (
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-mint-500">
@@ -1050,13 +1064,13 @@ function FieldRow({
     <div
       onMouseEnter={() => onHover(f)}
       onMouseLeave={() => onHover(null)}
-      className={cn('py-2.5 transition-colors', needsAttention && '-mx-2 rounded-lg bg-amber-400/[0.05] px-2', f.status === 'MISSING' && '!bg-rose-400/[0.05]')}
+      className={cn('py-2.5 transition-colors', needsAttention && '-mx-2 rounded-lg bg-amber-400/[0.05] px-2', f.status === 'MISSING' && '!bg-rose-400/[0.05]', f.status === 'ABSENT' && 'opacity-60')}
     >
       <div className="flex items-center gap-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[0.68rem] text-slate-500">
             {f.label}
-            {f.required && <span className="text-rose-400">*</span>}
+            {f.expected && <span title="Expected on this document type" className="text-rose-400">*</span>}
             {f.corrected && (
               <span title={`Machine-repaired${f.rawValue ? ` from "${f.rawValue}"` : ''} — ${SOURCE_LABEL[f.source]}`}>
                 <Wand2 className="h-3 w-3 text-cyan-500" />
@@ -1085,7 +1099,11 @@ function FieldRow({
             </div>
           ) : (
             <div className="truncate text-sm font-semibold text-slate-900" title={f.rawValue && f.rawValue !== f.value ? `Machine read: "${f.rawValue}"` : undefined}>
-              {f.value || <span className="font-normal italic text-slate-400">not found</span>}
+              {f.value || (
+                <span className="font-normal italic text-slate-400">
+                  {f.status === 'ABSENT' ? 'not on this form' : 'not found'}
+                </span>
+              )}
             </div>
           )}
 
@@ -1096,11 +1114,15 @@ function FieldRow({
 
         {!editing && (
           <>
-            <span className={cn('tnum shrink-0 text-xs font-bold', confColor(f.confidence))}>{Math.round(f.confidence * 100)}%</span>
+            {f.status !== 'ABSENT' && (
+              <span className={cn('tnum shrink-0 text-xs font-bold', confColor(f.confidence))}>{Math.round(f.confidence * 100)}%</span>
+            )}
             {f.status === 'CONFIRMED' ? (
               <span title="Confirmed by a human"><CheckCircle2 className="h-4 w-4 shrink-0 text-mint-400" /></span>
             ) : f.status === 'AUTO' ? (
               <span title={`Auto-accepted — ${SOURCE_LABEL[f.source]}`}><ShieldCheck className="h-4 w-4 shrink-0 text-slate-300" /></span>
+            ) : f.status === 'ABSENT' ? (
+              <span title="This form version doesn't carry this field — not an OCR failure. Fill it manually if the school needs it." className="shrink-0 text-[0.62rem] font-medium uppercase tracking-wide text-slate-400">n/a</span>
             ) : null}
             {!committed && (
               <div className="flex shrink-0 items-center gap-1">
