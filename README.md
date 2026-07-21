@@ -1,159 +1,482 @@
-# ⬦ Meridian — the trust-first operating system for schools
+# ⬦ Meridian
 
-> Five engines, one source of truth. Every automated action is **explainable, reversible and audited** — so you can automate everything, because you can undo anything.
+**The trust-first operating system for school administration.**
 
-A complete, production-shaped full-stack application for the **Future-Ready Ops** challenge: React + TypeScript + Tailwind on the front, Node + Express + Prisma + Socket.io on the back, with real OpenAI-powered AI (and a deterministic, data-grounded fallback so it never fails on stage).
+Six integrated engines replace disconnected school software with one platform where every automated decision is **explainable** (it shows its reasoning) and **auditable** (who, when, on what evidence) — and every state change is **reversible wherever a reverser exists**, with the UI refusing to offer undo where one doesn't.
 
----
+Every module writes through a shared **event-sourced trust core**. That is what makes audit, time-travel and genuine undo possible at all, rather than bolted on afterwards.
 
-## ✨ What's inside 
+### Core capabilities
 
-### The five engines (every problem-statement requirement, mapped)
-| Requirement | Engine | Where |
-| --- | --- | --- |
-| AI Document Processing | **Lumen** | `/lumen` — upload → verified record with confidence + clickable **pixel-level proof crops** + human-in-the-loop review queue |
-| Timetable Optimization | **Kairos** | `/kairos` — constraint solver, **explainable conflicts** (minimal core + cheapest fix), what-if simulation |
-| School ERP Automation | **Pulse** | Students, Staff, Classes, Attendance, Fees — event-sourced, realtime |
-| The Admin Dashboard | **Pulse · Command Center** | `/` — proactive anomaly-ranked alerts, ⌘K palette, Copilot |
-| Predictive Resource Allocation | **Foresight** | `/foresight` — absence & substitute-demand forecasts with SHAP-style drivers |
-| Automated Attendance (RFID / CV) | **Presence** | `/presence` — event-driven attendance platform: RFID, manual and face recognition all flow through one pipeline; reader fleet + card lifecycle management, live feed, analytics, and a hardware-identical simulator, **zero raw images stored** |
+| | Engine | What it does |
+|---|---|---|
+| 📄 | **Lumen** | Document intelligence — paper forms become verified records with pixel-level proof |
+| 🕰 | **Kairos** | Timetable optimisation — conflict-free schedules that explain themselves, and explain failure |
+| 📡 | **Presence** | Attendance integrity — RFID × face fusion that kills proxy attendance |
+| 📈 | **Foresight** | Predictive operations — forecasts and early warning, with the arithmetic on the page |
+| 💬 | **Copilot** | Actionable assistant — asks answered from live data, then *executed* in one click |
+| 🫀 | **Pulse** | ERP command centre — an exception queue, not a chart museum |
 
-### The 10 "wow" features
-1. **School Digital Twin** — live animated campus map (`/twin`), occupancy · teacher presence · attendance · power
-2. **AI Principal Copilot** — grounded operational assistant (`/copilot`), answers from the live event store
-3. **Emergency Mode** — one button (`/emergency`) fans Fire/Earthquake/Medical/Lockdown alerts to everyone + evacuation protocol
-4. **AI Insight Feed** — natural-language insights with cause + confidence (dashboard)
-5. **Time Machine** — visual slider (`/trust`) to rewind the whole school to any past moment
-6. **Voice Commands** — say *"Mark 8A absent"* in the ⌘K palette or Copilot (Web Speech API)
-7. **Smart Notifications** — actionable ("3 teacher conflicts, fix ready"), not "new fee due"
-8. **AI-Generated Reports** — one-click executive summary + recommendations (`/reports`)
-9. **Audit Timeline** — git-style history with one-tap **Undo** (`/trust`)
-10. **Beautiful animations** — Framer Motion, glassmorphism, animated gradients, Recharts, micro-interactions
+### At a glance
 
-### The Trust Core
-Append-only **event store** → materialized views → **Time Machine** replay + **undo**. Every AI action is written to the **Trust Ledger** (who · what · why · confidence · reversible).
+```
+        React + TypeScript  (:5173)
+                 │  REST + WebSocket
+                 ▼
+      Node + Express + Prisma  (:4000)   ← all writes, auth, realtime
+                 │
+        ┌────────┴─────────┐
+        ▼                  ▼
+   SQLite / Postgres   Python Intelligence  (:8010)
+   event-sourced core   read-only · scikit-learn
+```
 
----
-
-## 🚀 Quick start
-
-**Prerequisites:** Node.js **20+** (22 recommended — see `.nvmrc`) and npm. Python **3.11+** is optional (only for the intelligence engine below). No database server, Redis, or API keys required — SQLite is bundled and the app runs fully offline of any paid service.
+### 30-second start
 
 ```bash
-# from the repo root — one command does everything:
+npm run setup && npm run dev     # → http://localhost:5173
+```
+
+Log in with one tap as `principal@meridian.school` (password `meridian123`).
+
+---
+
+## Table of contents
+
+1. [Why Meridian is different](#1-why-meridian-is-different)
+2. [The problem we actually solve](#2-the-problem-we-actually-solve)
+3. [Quick start](#3-quick-start)
+4. [The six engines](#4-the-six-engines)
+5. [The Trust Core](#5-the-trust-core)
+6. [Requirement coverage](#6-requirement-coverage)
+7. [The four demo moments](#7-the-four-demo-moments)
+8. [Screenshots](#8-screenshots)
+9. [Architecture at a glance](#9-architecture-at-a-glance)
+10. [Project structure](#10-project-structure)
+11. [API surface](#11-api-surface)
+12. [Data model](#12-data-model)
+13. [Configuration](#13-configuration)
+14. [Testing & quality](#14-testing--quality)
+15. [Honest limits](#15-honest-limits)
+16. [Troubleshooting](#16-troubleshooting)
+
+---
+
+## 1. Why Meridian is different
+
+| Typical school ERP | Meridian |
+|---|---|
+| Six modules over six CRUD tables; the same student typed into each | One append-only event core; every module is a projection of it |
+| A bolted-on "logs" page, incomplete and unqueried | The event log **is** the database — "who changed what, when" is one query |
+| Passive dashboard: pie charts nobody acts on | Exception queue: only what is wrong today, each card with a one-click fix that *executes* |
+| Black-box AI, or "AI-powered" stickers on rule-based features | Explainable AI where it earns its place — and explicit determinism where reliability outranks cleverness |
+| Manual document entry, errors found at certificate time | Confidence-scored intake with human review and pixel provenance |
+| No undo — mistakes are permanent or need a DBA | Event-backed undo, offered only where a reverser genuinely exists |
+| Timetable generator that says "infeasible" and shrugs | Names the minimal conflicting rules **and the cheapest fix** |
+| RFID attendance nobody reconciles; buddy-punching is an open secret | Dual-factor fusion — the card claims, the camera confirms |
+
+---
+
+## 2. The problem we actually solve
+
+Schools don't suffer from a shortage of software. They suffer from a **surplus of disconnected software** — an admissions spreadsheet, a fee register, a timetable in Excel, a WhatsApp group for circulars, a paper substitution diary, and an attendance register that agrees with none of them. Every gap between those tools is bridged by a human re-typing data.
+
+But the deeper problem isn't the typing — it's that **schools operate reactively**. A teacher calls in sick and the morning becomes a scramble. A student quietly slips for six weeks and nobody notices until the report card. Fees fall behind and chasing them feels like an accusation.
+
+And the reason schools don't adopt AI to fix this is **trust**. A wrong attendance record is a safeguarding failure. A wrong fee reminder is a reputational one. Nobody hands a child's records — or tomorrow's timetable — to a black box.
+
+**So Meridian is built on one thesis:**
+
+| Principle | What it means in the code |
+|---|---|
+| **Proactive** | The home screen is a ranked queue of *what needs you now*, each with a one-click action that actually performs the operation — not a chart museum. |
+| **Explainable** | Every score ships with its formula and inputs. Every timetable slot answers "why is this lesson here?". Every risk flag narrates its evidence. |
+| **Reversible** | State changes are events; events have reversers; the UI only claims "undo" when a reverser genuinely exists. |
+| **Honest** | Where AI would be irresponsible, we use deterministic logic **and say so**. When a service is down we render "offline" — never an invented number. |
+
+---
+
+## 3. Quick start
+
+**Prerequisites:** Node.js **20+** (22 recommended — see `.nvmrc`) and npm. Python **3.11+** is optional, for the intelligence engine. No database server, no Redis, no API keys required.
+
+```bash
+git clone <repo> && cd MERIDIAN
+
 npm run setup    # installs all deps, creates server/.env, builds + seeds the SQLite DB
-npm run dev      # runs server (:4000) + client (:5173) together
+npm run dev      # server :4000 + client :5173
 ```
 
-Open **http://localhost:5173** and use a one-tap demo login.
+Open **http://localhost:5173**.
 
-> `npm run setup` is idempotent and self-healing: it auto-creates `server/.env` from `server/.env.example` if missing, and generates the Prisma client on install — so a fresh clone never fails on the first command. Re-running `npm run seed` resets the demo data to a clean state.
+> `npm run setup` is idempotent: it auto-creates `server/.env` from the example and generates the Prisma client on install, so a fresh clone doesn't hit the classic "Environment variable not found: DATABASE_URL" wall. Re-running `npm run seed` restores a clean, **deterministic** demo school (same seed → same data).
 
-<details>
-<summary>Prefer the individual steps?</summary>
+### The intelligence engine (optional but recommended)
 
-```bash
-npm run install:all                 # install root + server + client (also creates server/.env + Prisma client)
-npm --prefix server run db:setup    # create the SQLite DB + Prisma client
-npm --prefix server run seed        # seed a realistic school
-npm run dev
-```
-</details>
-
-### Optional — the Python intelligence engine
-The dashboard's insights, forecasts, health score and at-risk index are computed by a read-only Python microservice. Without it, those panels show an explicit **"engine offline"** state (never invented numbers) — everything else works.
+Insights, forecasts, the health score and the at-risk index are computed by a read-only Python service. Without it those panels show an explicit **"engine offline"** state — everything else works.
 
 ```bash
 npm run intelligence:install   # one-time: pip install -r intelligence/requirements.txt
-npm run intelligence           # runs the engine on :8010
+npm run intelligence           # runs on :8010
 ```
 
-### Demo logins (password: `meridian123`)
-| Role | Email |
-| --- | --- |
-| Principal | `principal@meridian.school` |
-| Admin | `admin@meridian.school` |
-| Teacher | `teacher@meridian.school` |
-| Student | `student@meridian.school` |
-| Parent | `parent@meridian.school` |
+⚠️ The engine has **no hot reload** — restart it after editing Python.
 
-> The login screen also has **one-tap role buttons** — no typing needed.
+### Demo logins — password `meridian123`
+
+| Role | Email | Sees |
+|---|---|---|
+| Principal | `principal@meridian.school` | Everything, including approve/publish and undo |
+| Admin | `admin@meridian.school` | School-wide operations |
+| Teacher | `teacher@meridian.school` | Their classes, attendance, timetable |
+| Student | `student@meridian.school` | Own record, timetable, fees |
+| Parent | `parent@meridian.school` | Their children (this account has two — the sibling case) |
+
+The login screen has one-tap role buttons; no typing needed.
+
+### Every command
+
+| Command | Does |
+|---|---|
+| `npm run setup` | Full first-run: install → `.env` → DB → seed |
+| `npm run dev` | Server + client together |
+| `npm run seed` | Reset to the clean demo school |
+| `npm run intelligence` | Start the Python engine (:8010) |
+| `npm test` *(in `server/`)* | 96 tests |
+| `npm run typecheck` | Per workspace |
+| `npx tsx scripts/audit-db.ts` *(in `server/`)* | Database integrity + coverage audit |
+| `npm run build` | Production build of both workspaces |
 
 ---
 
-## 🔌 Enabling real OpenAI
+## 4. The six engines
 
-AI works out of the box using a deterministic, data-grounded simulation. To use **real OpenAI**:
+### 🔦 Lumen — Document Intelligence
+**Paper becomes verified data, with pixel-level proof.** `/lumen`
+
+Upload up to 12 files (PDF/PNG/JPEG/WEBP/TIFF, ≤16 MB, ≤20 pages). Lumen runs a 19-module pipeline:
+
+```
+ingest → classify → extract → cross-validate → AI repair → duplicates → score
+```
+
+- **Ingest** takes the fast path when a PDF has a text layer, and the hard path otherwise: paper-edge detection + **perspective correction** (a photo shot at an angle is flattened back into a scan), orientation detection, deskew, binarisation, upscale to ~300 DPI, then OCR with pooled workers. Digitally-filled PDFs are handled too — values typed into **form fields / annotations** are read from the annotation layer and merged in at their true coordinates.
+- **Classify** identifies **16 document types** from the page's own words, weighting the headline band, and reports ambiguity honestly (a report card vs a mark sheet scores as the coin-flip it is). Unidentifiable pages are typed **`UNKNOWN`** — never silently defaulted.
+- **Extract** finds fields by their *printed label* (never fixed coordinates), with multiple anchor variants per field and fuzzy matching for OCR slips. A garbage labelled read can be rescued by a pattern search elsewhere on the page.
+- **Confidence** is composite and deliberately conservative — engine confidence × label-match × source trust × quality cap, floored hard on validation failure. Above `AUTO_ACCEPT` (0.90) a field auto-verifies; below it queues for review.
+- **Provenance**: every value stores the normalised crop box it came from. Tap a field → see the exact pixels. `rawValue` keeps what OCR actually read before repair.
+- **Commit** creates a real Student/Teacher (with login credentials, forced password rotation) in one transaction — and it's undoable from the Trust ledger.
+
+**Two-layer field model** (a design we deliberately split):
+- `expected` — *document* structure: "this form type normally carries this field."
+- **Commit policy** — *school* business rule: "the ERP requires this before creating a record."
+
+So a field absent from one school's form version is `ABSENT` (a non-event, excluded from review and from the confidence score) — while School A can require a blood group and School B needn't, without touching a single template.
+
+### 🕰 Kairos — Scheduling Intelligence
+**Conflict-free timetables that explain themselves.** `/kairos`
+
+A custom constraint solver: most-constrained-first construction → repair by single-level displacement → random restarts → hill-climbing on weighted soft costs, inside a time budget.
+
+- **Hard constraints are never violated** — and they're guaranteed *at the database level*: `@@unique` on (timetable, class, day, period), (timetable, teacher, day, period), (timetable, room, day, period). A solver bug physically cannot write a double-booking.
+- Enforced: qualification, teacher availability, weekly/daily caps, max consecutive periods, lab requirements, room capacity, blocked cells, **max 2 periods of the same subject per class per day _and_ never 3 back-to-back**.
+- **Every slot explains itself** — qualification, current load, why this teacher over the alternatives, how many other options existed, with a confidence.
+- **Explainable infeasibility**: when a full schedule is impossible, Kairos names the smallest set of conflicting rules and ranks the fixes by declared cost (one-field change → staffing change → infrastructure), surfacing the **cheapest way out**.
+- **Lifecycle**: draft → approve → publish → rollback, transactional. Publishing archives the old version and activates the new one atomically; the school is never without a live timetable. Manual edits are re-validated against every hard constraint and lock the slot against regeneration.
+
+### ⚡ The absence cascade
+**One click, a whole morning handled — and one undo.** `/staff` → *Absent → cascade*
+
+Mark a teacher absent and a single call: records the absence → scans the live timetable → auto-assigns substitutes (qualified, free that period, under load caps, with reasons) → recomputes freed rooms → notifies substitutes *and* affected families → writes the whole thing as **one reversible event**.
+
+Undo restores state atomically and sends honest corrections — it never pretends the first messages weren't sent. When no qualified cover exists, it says so and frees the room rather than assigning an unqualified teacher to look good.
+
+### 📡 Presence — Attendance Integrity
+**RFID and face recognition, fused against proxy attendance.** `/presence`, `/face-recognition`
+
+One engine (`processScan`) is the single ingest point for every attendance source — real reader, simulator, manual mark, face kiosk, fusion gate. Everything happens in **one transaction**, so two near-simultaneous taps can't both slip past the duplicate check.
+
+The decision ladder: reader online? → card known and active? → student active, with a class? → duplicate window (120 s)? → direction (explicit / one-way reader / inferred) → late policy (start + grace) → write event + materialise the daily row → broadcast, log, notify.
+
+**Anti-proxy fusion** — the differentiator. The RFID tap *claims* an identity; the live camera must *confirm* it. This turns face recognition from a hard 1:N search into an easy **1:1 verification** against that one student's enrolled templates. Outcomes:
+
+| Result | Meaning |
+|---|---|
+| ✅ Verified | Card + face agree → present, with the similarity written on the event |
+| 🔴 **PROXY blocked** | Face doesn't match the cardholder → no attendance, security alert to admins, and the engine names *who actually showed up* (1:N fallback) |
+| 🔴 Rejected | Strict gate + un-enrolled cardholder → cannot pass on the card alone |
+| ⚪ Degrades honestly | Device path with no enrolled face → plain RFID, and the event says so |
+
+**Only face embeddings are stored — never a raw image.** Liveness (blink detection) runs before any mark. Rejections, duplicates and unknown cards are all written as events; nothing is silently dropped.
+
+The **Simulator** (`/presence/simulator`) drives the *real* engine through every edge case — late arrival, duplicate tap, unknown card, offline reader, lost/disabled card — plus virtual gate hardware that heartbeats readers exactly like physical ones.
+
+### 📈 Foresight — Predictive Operations
+**Forecasts and early warning, with the arithmetic on the page.** `/foresight`
+
+Computed by the Python engine, never by Node:
+
+- **At-risk index** — a declared-weight score over attendance deficit, trend, punctuality and fee aging, with per-student evidence in words ("attendance 62% over 24 marked days; fees ₹14,700 outstanding, oldest 14d overdue") and a computed confidence. It explicitly states that grades are *not* a factor **because there is no grades table** — rather than pretending.
+- **Forecasts** with prediction intervals and the model named: next-day attendance, substitute demand, fee collections, document review load. When evidence is thin, the payload says *"insufficient evidence"* instead of guessing.
+- **Anomalies** via seeded IsolationForest — reproducible, same data in → same result out.
+
+### 💬 Copilot — the console that *executes*
+**Ask in English; it does the work.** `/copilot`
+
+`question → classify intent → resolve FACTS from the DB/engine → phrase the answer from those facts only`.
+
+The LLM is a **parser and a phraser, never a source of truth** — and with no API key both steps degrade to deterministic paths, so the product always works. Crucially, answers carry **⚡ execute buttons** that complete the operation (send fee reminders, auto-assign cover, message at-risk families, flag for counselling) and report the real outcome back into the chat.
+
+### 🫀 Pulse — the ERP core & command centre
+**The event spine plus an exception-first dashboard.** `/`
+
+Students, staff, classes, attendance, fees, users, reports, notifications, the Digital Twin (live campus occupancy) and Emergency mode all read and write through the same event backbone. The admin home screen is a **ranked action queue**, each card carrying its evidence, its priority arithmetic ("why this rank?"), and a one-click resolve.
+
+---
+
+## 5. The Trust Core
+
+Three append-only layers that make the rest defensible:
+
+| Layer | Table | Answers |
+|---|---|---|
+| **Event store** | `Event` | *What happened, in order — and can it be undone?* |
+| **AI Trust Ledger** | `AILog` | *Which engine decided what, why, with what confidence?* |
+| **Audit log** | `AuditLog` | *Who did what to which record?* |
+
+**The honesty rule, enforced in code** ([`eventStore.ts`](server/src/services/eventStore.ts)): an event is advertised as `reversible` **only when a reverser actually exists for its type**. Callers may force `false`; they can never force `true`. An earlier version defaulted everything to reversible and "undo" silently no-op'd — a trust product must never claim a rollback it cannot perform.
+
+Reversers exist for attendance marks, fee payments, student creation, Lumen commits (including the accounts they minted, with the sibling case handled), document verification, the absence cascade, and face enrolment (which doubles as the GDPR-style erasure path).
+
+Events are written **inside the caller's transaction**, so a state change and its undo-record are atomic — and the socket broadcast is deferred until after commit, so nothing is announced that might yet roll back.
+
+**Time Machine** (`/trust`) replays the school to any past moment and offers one-tap undo on anything genuinely reversible.
+
+---
+
+## 6. Requirement coverage
+
+| Challenge requirement | Where it lives | Depth |
+|---|---|---|
+| **AI Document Processing** | Lumen | 19-module pipeline, 16 doc types, confidence-scored review queue, pixel provenance, transactional commit + undo |
+| **Timetable Optimization** | Kairos | Constraint solver, DB-level hard guarantees, per-slot explanations, minimal-conflict + cheapest-fix diagnosis |
+| **School ERP Automation** | Pulse | Event-sourced single spine; enter-once data; every screen a live projection |
+| **Admin Dashboard (minimal clicks, proactive)** | Pulse Command Center | Ranked exception queue with **executing** one-click resolves, transparent priority formula |
+| **Predictive Resource Allocation** | Foresight | Substitute-demand + attendance + fee forecasts with intervals; at-risk index |
+| **Automated Attendance (RFID / CV)** | Presence | Dual-factor fusion, four-tier outcome ladder, embeddings-only privacy |
+| **Reactive state, synced UI** | Socket.io + TanStack Query | Server-authoritative: pushed events invalidate query caches, so open screens converge within about a second — the web-native answer to the brief's Riverpod nod |
+
+---
+
+## 7. The four demo moments
+
+Full script with timings: [`docs/demo-script-5min.md`](docs/demo-script-5min.md).
+
+1. **Fusion anti-proxy** (`/face-recognition` → Gate mode) — tap your own card with your face in frame → ✅ verified. Tap a *teammate's* card with your face in frame → 🔴 **PROXY blocked**, with the impostor named and admins alerted.
+2. **The cascade** (`/staff`) — one click plays back the real executed steps with server timestamps, then **Undo everything** restores it atomically.
+3. **Provenance** (`/lumen`) — tap any extracted value, see the exact pixels it was read from; low-confidence fields wait in a worst-first queue.
+4. **Copilot that acts** (`/copilot`) — ask a question, then press ⚡ and watch the operation complete and report back.
+
+A blank, OCR-optimised admission form is included for live demos: [`docs/admission-form-blank.pdf`](docs/admission-form-blank.pdf) — its printed labels match the extraction anchors exactly.
+
+---
+
+## 8. Screenshots
+
+> Capture instructions: [`docs/screenshots/README.md`](docs/screenshots/README.md)
+
+| | |
+|---|---|
+| ![Command centre](docs/screenshots/dashboard.png) **Pulse** — the exception queue with one-click resolves | ![Lumen](docs/screenshots/lumen.png) **Lumen** — extracted fields beside the scan, with proof crops |
+| ![Kairos](docs/screenshots/kairos.png) **Kairos** — the published grid, every slot explainable | ![Presence](docs/screenshots/presence.png) **Presence** — fusion gate blocking a proxy attempt |
+| ![Copilot](docs/screenshots/copilot.png) **Copilot** — a grounded answer with an ⚡ execute button | |
+
+---
+
+## 9. Architecture at a glance
+
+```
+┌──────────────── React 18 + TS + Vite (:5173) ─────────────────┐
+│  TanStack Query (server cache) · Zustand (UI state)           │
+│  Socket.io client — pushed events invalidate caches           │
+└───────────────┬──────────────────────────┬────────────────────┘
+                │ REST /api                │ WebSocket
+┌───────────────▼──────────────────────────▼────────────────────┐
+│           Node 20 + Express + Socket.io (:4000)               │
+│  JWT · RBAC (6 roles) · rate limiting · helmet · CORS         │
+│                                                               │
+│  Engines:  Lumen · Kairos · Presence · Pulse · Copilot        │
+│  Trust Core:  event store · AI ledger · audit log             │
+└───────────────┬──────────────────────────┬────────────────────┘
+                │ Prisma ORM               │ HTTP (read-only)
+┌───────────────▼───────────┐   ┌──────────▼────────────────────┐
+│  SQLite (dev)             │   │  FastAPI + scikit-learn       │
+│  Postgres-ready (compose) │◄──┤  Intelligence engine (:8010)  │
+│  40 models, append-only   │   │  health · insights · forecasts│
+│  event table = audit log  │   │  anomalies · at-risk index    │
+└───────────────────────────┘   └───────────────────────────────┘
+```
+
+**Why three processes:** Node owns transactions, auth and realtime; Python owns everything model-shaped (that's where the libraries live) and opens the database **read-only** so it can never write; React owns nothing but presentation. Node performs *no* intelligence — it authenticates, forwards, caches for 30 s, and renders "offline" honestly if the engine is unreachable.
+
+Deep dive: [`system-architecture.md`](system-architecture.md).
+
+---
+
+## 10. Project structure
+
+```
+MERIDIAN/
+├── client/src/
+│   ├── pages/              # one file per route; kairos/ and presence/ have sub-views
+│   ├── components/         # ui/ primitives, layout/, face/
+│   ├── hooks/              # useRealtime, useRfidReader, useWebcam, useVoice…
+│   ├── store/              # auth + ui (Zustand)
+│   ├── lib/                # api client, socket, face-api wrapper, utils
+│   └── constants/nav.ts    # nav + per-route role guard (single source of truth)
+│
+├── server/
+│   ├── prisma/             # schema.prisma (40 models) + deterministic seed.ts
+│   ├── scripts/            # audit-db, audit-kairos, benchmarks, fixtures
+│   ├── tests/              # end-to-end suites (supertest)
+│   └── src/
+│       ├── routes/         # 20 routers; presence/ is a sub-router
+│       ├── services/
+│       │   ├── lumen/      # 19 modules: ingest→classify→extract→…→commit
+│       │   ├── kairos/     # engine, workflow, cascade, substitute, validate
+│       │   ├── presence/   # engine, cards, readers, analytics, channels
+│       │   ├── eventStore.ts trustLedger.ts intelligence.ts copilot*.ts
+│       ├── middleware/     # auth (JWT + reader keys), error handler
+│       └── lib/            # prisma, socket, auth, openai, errors
+│
+├── intelligence/app/
+│   ├── feature_engineering/  # attendance, finance, staffing, timetable, documents, operations, students
+│   ├── anomaly_detection/    # seeded IsolationForest
+│   ├── forecasting/          # OLS / Poisson / aging-ratio with intervals
+│   ├── scoring/health.py     # weighted health score + formulas
+│   ├── recommendation_engine/
+│   ├── inference/engine.py   # orchestrator — assembles the payload + traces
+│   └── confidence.py         # the confidence arithmetic
+│
+└── docs/                     # demo script, simulator guide, blank admission form
+```
+
+---
+
+## 11. API surface
+
+All under `/api`, JWT-authenticated unless noted, school-scoped by the token.
+
+| Router | Highlights |
+|---|---|
+| `/auth` | login, me, change-password (token-version invalidation) |
+| `/dashboard` | stats, **`/intelligence`** (proxies Python, 30 s cache) |
+| `/students` `/staff` `/classes` `/attendance` `/fees` `/users` | ERP CRUD + operations |
+| `/staff/absence/cascade`, `/absence/undo` | the reversible cascade |
+| `/documents` | Lumen: upload, status, fields, confirm/correct, verify, **commit**, history, export, **commit-policy** |
+| `/timetable` | Kairos: overview, generate, draft edit/lock, approve, publish, rollback, substitute plan/apply |
+| `/presence` | readers, cards, scan (device or staff), feed, analytics, settings, simulate/* |
+| `/presence/scan/fusion` | dual-factor RFID × face ingest |
+| `/face` | enroll, recognize-batch, attendance, status, unknown |
+| `/copilot` | ask, suggestions |
+| `/actions/execute` | one-click operations: assign-cover, fee-reminders, at-risk-outreach, counselling-flag |
+| `/trust` | event feed, time-machine replay, **undo** |
+| `/twin` `/emergency` `/reports` `/notifications` `/school` | campus map, incident coordination, AI reports, inbox, config |
+
+**Device authentication:** real RFID readers POST to `/api/presence/scan` with an `x-reader-key` header (bcrypt-hashed at rest); the reader's own ID is taken from the authenticated device, never from the request body.
+
+---
+
+## 12. Data model
+
+40 Prisma models. Portable by design — no native enums or scalar lists, so the same schema runs on SQLite and Postgres unchanged. Highlights:
+
+- **Tenancy**: `School` scopes virtually every query; the JWT carries `schoolId`.
+- **Identity**: `User` (6 roles, `tokenVersion` for instant global logout, brute-force lockout) → `Teacher` / `Student` / `Parent`, with `StudentParent` many-to-many for siblings.
+- **Academic**: `Class`, `Subject`, `AcademicConfig` (calendar, periods, breaks, blocked cells, holidays), `ClassSubjectPlan` (curriculum — what drives generation).
+- **Timetable**: `Timetable` (draft/approved/published/archived, exactly one active) → `TimetableSlot` with the three uniqueness guarantees; `StaffAbsence` → `Substitution`.
+- **Attendance**: `AttendanceEvent` (append-only raw scans, every source) + `Attendance` (materialised daily view).
+- **Presence hardware**: `RFIDCard` (lifecycle + replacement chain), `RFIDReader`, `ReaderHeartbeat`.
+- **Lumen**: `Document` → `ExtractedField` (value, `rawValue`, confidence, crop, status, source), `DocumentPage` (word boxes = the audit trail), `DocumentInsight`, `DocumentActivity` (per-document timeline).
+- **Biometrics**: `FaceEmbedding` (128-D vectors only — never an image), `FaceEvent` (unknown/spoof/proxy log).
+- **Trust**: `Event`, `AILog`, `AuditLog`.
+- **Ops**: `Fee`/`Payment`, `Notification`/`NotificationRead` (read state is per-user — a school-wide notice can't be marked read for everyone by the first reader), `EmergencyIncident`/`Ack`/`Event`, `Building`/`Room`, `Setting`.
+
+Run `npx tsx scripts/audit-db.ts` in `server/` for a live integrity + coverage report (ledger arithmetic, orphans, business rules, feature-data depth).
+
+---
+
+## 13. Configuration
+
+`server/.env` — auto-created from `.env.example` on install. Everything has a working default.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` / `CLIENT_ORIGIN` | 4000 / :5173 | |
+| `DATABASE_URL` | `file:./meridian.db` | Swap for a Postgres URL + change the provider |
+| `JWT_SECRET` | dev fallback | **Refuses to start in production** without a 32+ char secret |
+| `OPENAI_API_KEY` | *(empty)* | Optional — without it, AI paths degrade deterministically |
+| `LUMEN_STORAGE_KEY` | derived | Documents are encrypted at rest (AES-256-GCM) |
+| `LUMEN_RETENTION_DAYS` | 30 | Failed/abandoned docs only; committed records are never auto-deleted |
+| `INTELLIGENCE_URL` | `http://localhost:8010` | Python engine |
+| `HEALTH_WEIGHTS` | *(engine-side)* | JSON override for health-score weights |
+
+---
+
+## 14. Testing & quality
 
 ```bash
-# server/.env
-OPENAI_API_KEY=sk-...        # your key
-OPENAI_MODEL=gpt-4o-mini     # or any chat model
+cd server && npm test        # 96 tests across 17 files
+npm run typecheck            # in server/ and client/ — both clean
+npx tsx scripts/audit-db.ts  # database integrity + feature-data coverage
 ```
 
-Restart the server. Copilot answers and report narratives now come from OpenAI — still **grounded** on live data, and the app transparently falls back to simulation if the key is missing or a call fails.
+Tests cover the things that would actually hurt: the Kairos solver audited against every hard constraint from a clean state (including the subject-run rule), the reversible cascade end-to-end with undo, fusion verified/proxy/strict-rejection paths, Lumen commit + class validation + **commit policy** (School A blocks / School B commits, same document), intake hardening (page cap, HEIC/Office rejection, UNKNOWN typing), digitally-filled PDFs, presence scan edge cases, emergency coordination, and RBAC boundaries.
+
+Each test builds its own school-scoped fixture with a random suffix, so suites never interfere despite sharing one SQLite file.
 
 ---
 
-## 🏗️ Architecture
+## 15. Honest limits
 
-```
-Experience layer (React + Vite + Tailwind + Framer Motion)
-  Admin Command Center · Staff app · Presence kiosk · Parent portal
-        ▲ reactive React Query · Socket.io realtime ▼
-Trust Core (Express + Prisma) — append-only event store = single source of truth
-  every change → event → materialized view → Time Machine replay & audit
-        ▼ events fan out to intelligence services ▼
-  Lumen (OCR+map) · Kairos (solver) · Foresight (forecast) · Presence (edge) · Copilot (grounded LLM)
-```
+The whole product is a claim about honesty, so here is where the edges are:
 
-### Stack
-- **Frontend:** React 18 · TypeScript · Vite · TailwindCSS · React Router · TanStack Query · Zustand · Framer Motion · Recharts · Socket.io-client
-- **Backend:** Node · Express · TypeScript · Prisma · SQLite (Postgres-ready) · Socket.io · JWT · bcrypt · Zod · Multer · OpenAI
-- **Cross-cutting:** RBAC (6 roles) · event sourcing · Trust Ledger · offline-tolerant · realtime
-
-### Data model
-`School · User · Teacher · Student · Parent · Class · Subject · Building · Room · Attendance · RFIDCard · RFIDReader · ReaderHeartbeat · AttendanceEvent · Document · ExtractedField · Timetable · TimetableSlot · StaffAbsence · Substitution · Fee · Payment · Prediction · Event · AILog · AuditLog · Notification · EmergencyIncident · Setting`
+- **The Kairos solver is a custom constraint engine**, not OR-Tools CP-SAT. It enforces every hard constraint, explains infeasibility and ranks fixes — but it is a purpose-built heuristic solver, not industrial CP.
+- **OCR is Tesseract**, tuned hard (perspective correction, deskew, adaptive binarisation, multi-pass rescue). It reads **printed and block-capital text well; cursive handwriting poorly** — and when it's unsure it routes to review rather than guessing. **English only.**
+- **Forecasts are interpretable statistics**, not deep models — a deliberate choice at ~24 school days of history, stated in every trace. The at-risk index uses **declared weights**, not a trained model, because there are no labelled outcomes to train on.
+- **SMS / email / push are typed seams, not deliveries.** No provider is configured; each call logs a structured "would send" entry with the exact payload to the Trust Ledger. In-app + realtime notifications are genuinely delivered.
+- **No offline sync.** Attendance capture needs the server.
+- **SQLite in dev.** Postgres-ready (schema is portable, `docker-compose.yml` included) but the demo runs on SQLite.
+- **Grades aren't modelled**, so the risk index says so instead of implying it weighs them.
 
 ---
 
-## 🐘 Switching to Postgres (production)
+## 16. Troubleshooting
 
-Local dev uses **SQLite** for zero setup. For Postgres:
-
-1. `docker compose up -d` (starts Postgres + Redis)
-2. `server/.env` → `DATABASE_URL="postgresql://meridian:meridian@localhost:5432/meridian?schema=public"`
-3. `server/prisma/schema.prisma` → set `datasource db { provider = "postgresql" }`
-4. `npm --prefix server run db:setup && npm --prefix server run seed`
-
-The schema is written to be portable across both (string constants instead of native enums, JSON-as-text payloads).
-
----
-
-## 📁 Structure
-
-```
-meridian/
-├── server/
-│   ├── prisma/{schema.prisma, seed.ts}
-│   └── src/
-│       ├── config/            env
-│       ├── lib/               prisma, auth, socket, openai, errors, json
-│       ├── middleware/        auth (RBAC), error
-│       ├── services/          eventStore, trustLedger, kairos, foresight, lumen, copilot, notifications
-│       └── routes/            auth, dashboard, students, staff, classes, attendance,
-│                              timetable, fees, documents, notifications, predictions,
-│                              twin, emergency, copilot, trust, reports
-└── client/
-    └── src/
-        ├── components/{ui, layout}   design system + Sidebar/Topbar/CommandPalette/…
-        ├── hooks/                    useRealtime, useVoice
-        ├── pages/                    18 fully-wired pages
-        ├── store/                    auth, ui (Zustand)
-        ├── lib/                      api, socket, utils
-        └── types/                    shared TypeScript contracts
-```
+| Symptom | Cause & fix |
+|---|---|
+| Dashboard shows "engine offline" | Python service isn't running → `npm run intelligence`. (This is the honest degradation working, not a crash.) |
+| Insights look stale after editing Python | The engine has no hot reload — restart it. |
+| Every scan is `Rejected — reader offline` | Readers went quiet (>90 s). Open Presence → Simulator → **Virtual gate hardware ON**, or click "Bring it online". |
+| Gate mode rejects a valid card | Strict fusion requires an enrolled face. Face Recognition → Enrollment first. |
+| A card keeps getting rejected as lost/disabled | The simulator's "Lost/Disabled card" scenario really changed its status. Restore under Manage → Cards. |
+| Cascade covered 0 periods | No qualified, free substitute existed — it says so and frees the room rather than assigning someone unqualified. Cascade a teacher of a shared subject to see full coverage. |
+| Lumen extracted labels but no values | Fixed — digitally-filled PDFs are read from the annotation layer. If it recurs, re-upload; the pipeline falls back to OCR for appearance-only fills. |
+| Uploaded iPhone photo rejected | HEIC isn't supported; the error tells you how to export as JPEG. |
+| `prisma db push` fails on a fresh clone | `server/.env` missing → `npm run setup` creates it automatically. |
 
 ---
 
-**Automate everything — because you can undo anything.**
+## Further reading
+
+| Document | Contents |
+|---|---|
+| [`system-architecture.md`](system-architecture.md) | Deep technical architecture — data flow, engine internals, security, trade-offs |
+| [`techstack.md`](techstack.md) | Every dependency and why it was chosen |
+| [`docs/demo-script-5min.md`](docs/demo-script-5min.md) | Minute-by-minute demo script with failure recovery lines |
+| [`docs/presence-rfid-simulator.md`](docs/presence-rfid-simulator.md) | What every simulator scenario really does |
+| [`intelligence/README.md`](intelligence/README.md) | The Python engine's honesty rules and module layout |
+
+---
+
+**Meridian** — *automate everything, explain everything, trust everything.*
