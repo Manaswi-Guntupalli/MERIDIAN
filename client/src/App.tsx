@@ -24,7 +24,10 @@ const AttendanceSummary = lazy(() => import('@/pages/presence/AttendanceSummary'
 const PresenceActivity = lazy(() => import('@/pages/presence/Activity'));
 const PresenceAnalytics = lazy(() => import('@/pages/presence/Analytics'));
 const PresenceSimulator = lazy(() => import('@/pages/presence/Simulator'));
-const FaceRecognition = lazy(() => import('@/pages/FaceRecognition'));
+// Face recognition is the camera half of Presence — mounted as Presence tabs.
+const PresenceKiosk = lazy(() => import('@/pages/FaceRecognition').then((m) => ({ default: m.LiveKiosk })));
+const PresenceEnrollment = lazy(() => import('@/pages/FaceRecognition').then((m) => ({ default: m.Enrollment })));
+const PresenceInsights = lazy(() => import('@/pages/FaceRecognition').then((m) => ({ default: m.Insights })));
 const Twin = lazy(() => import('@/pages/Twin'));
 const Trust = lazy(() => import('@/pages/Trust'));
 const Reports = lazy(() => import('@/pages/Reports'));
@@ -109,9 +112,14 @@ export default function App() {
           <Route path="/presence/summary/:sessionId" element={g(STAFF, <AttendanceSummary />)} />
           <Route path="/presence" element={g(STAFF, <PresenceLayout />)}>
             <Route index element={<PresenceSessions />} />
+            <Route path="kiosk" element={<PresenceKiosk />} />
+            <Route path="enrollment" element={g(ADMIN, <PresenceEnrollment />)} />
             <Route path="activity" element={<PresenceActivity />} />
             <Route path="analytics" element={<PresenceAnalytics />} />
+            <Route path="insights" element={<PresenceInsights />} />
             <Route path="simulator" element={g(ADMIN, <PresenceSimulator />)} />
+            {/* Old standalone Face Recognition tab → now lives here. */}
+            <Route path="face" element={<LegacyRedirect to="/presence/kiosk" />} />
             {/* Legacy Presence URLs forward to the consolidated tabs. */}
             <Route path="attendance" element={<LegacyRedirect to="/presence/activity" />} />
             <Route path="history" element={<LegacyRedirect to="/presence/activity" />} />
@@ -120,7 +128,8 @@ export default function App() {
             <Route path="manage" element={<LegacyRedirect to="/presence" />} />
             <Route path="settings" element={<LegacyRedirect to="/presence" />} />
           </Route>
-          <Route path="/face-recognition" element={g(STAFF, <FaceRecognition />)} />
+          {/* Face Recognition consolidated into Presence — forward old links. */}
+          <Route path="/face-recognition" element={<LegacyRedirect to="/presence/kiosk" />} />
           <Route path="/twin" element={g(STAFF, <Twin />)} />
           <Route path="/trust" element={g(ADMIN, <Trust />)} />
           <Route path="/reports" element={g(ADMIN, <Reports />)} />

@@ -106,8 +106,8 @@ export default function Fees() {
             header: 'Status',
             align: 'right',
             cell: (f) => (
-              <Badge severity={f.status === 'PAID' ? 'SUCCESS' : f.status === 'OVERDUE' ? 'CRITICAL' : f.status === 'PARTIAL' ? 'INFO' : 'WARNING'}>
-                {f.status.toLowerCase()}
+              <Badge severity={f.status === 'PAID' ? 'SUCCESS' : f.overdue ? 'CRITICAL' : f.status === 'PARTIAL' ? 'INFO' : 'WARNING'}>
+                {f.overdue ? 'overdue' : f.status.toLowerCase()}
               </Badge>
             ),
           },

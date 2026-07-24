@@ -1,51 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ScanFace, Users, ShieldCheck, Eye, UserPlus, Activity, AlertTriangle, Loader2, Camera, Play, ShieldAlert } from 'lucide-react';
+import { ScanFace, Users, ShieldCheck, Eye, AlertTriangle, Loader2, Play, ShieldAlert } from 'lucide-react';
 import { api, apiError } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import { useWebcam } from '@/hooks/useWebcam';
 import { loadFaceModels, detectAll, detectLandmarksOnly, eyeAspectRatio, BlinkDetector, captureFrameBase64 } from '@/lib/face';
-import PageHeader from '@/components/PageHeader';
 import { Card, Badge, StatTile, LoadingScreen, EmptyState, Meter, Spinner } from '@/components/ui';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { FACE } from '@/constants/theme';
 import type { AttendanceSessionView, MarkResultView } from '@/types';
 
-const TABS = [
-  { id: 'kiosk', label: 'Live Kiosk', icon: Camera },
-  { id: 'enroll', label: 'Enrollment', icon: UserPlus },
-  { id: 'insights', label: 'Insights', icon: Activity },
-] as const;
-
-export default function FaceRecognition() {
-  const [tab, setTab] = useState<'kiosk' | 'enroll' | 'insights'>('kiosk');
-  return (
-    <div>
-      <PageHeader
-        overline="Engine 05 · Presence"
-        title="Face Recognition Attendance"
-        subtitle="The primary attendance method. The camera confirms identity, the session validates the window, and QR is the fallback — images are embedded server-side in memory and never stored."
-      />
-      <div className="mb-6 inline-flex rounded-xl border border-line p-1">
-        {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={cn('flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition', tab === t.id ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-900')}>
-            <t.icon className="h-4 w-4" /> {t.label}
-          </button>
-        ))}
-      </div>
-      {tab === 'kiosk' && <LiveKiosk />}
-      {tab === 'enroll' && <Enrollment />}
-      {tab === 'insights' && <Insights />}
-    </div>
-  );
-}
+// These three now mount directly as Presence tabs (Kiosk / Enrollment /
+// Insights) under PresenceLayout, which supplies the page header + tab bar.
+// Face recognition is the camera half of Presence attendance — same engine,
+// same session — so it lives in the same module rather than a separate one.
 
 // ─────────────────────────── LIVE KIOSK ───────────────────────────
 interface LogEntry { name: string; state: string; confidence: number; at: string; reason?: string }
 
-function LiveKiosk() {
+export function LiveKiosk() {
   const qc = useQueryClient();
   const { pushToast } = useUI();
   const { videoRef, ready, error, start, stop } = useWebcam();
@@ -217,7 +192,7 @@ function LiveKiosk() {
 }
 
 // ─────────────────────────── ENROLLMENT ───────────────────────────
-function Enrollment() {
+export function Enrollment() {
   const qc = useQueryClient();
   const user = useAuth((s) => s.user)!;
   const canEnroll = ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'].includes(user.role);
@@ -302,7 +277,7 @@ function EnrollDialog({ subject, onClose, onDone }: { subject: { type: 'STUDENT'
 }
 
 // ─────────────────────────── INSIGHTS ───────────────────────────
-function Insights() {
+export function Insights() {
   const status = useQuery({ queryKey: ['face', 'status'], queryFn: async () => (await api.get('/face/status')).data, refetchInterval: 5000 });
   const unknown = useQuery({ queryKey: ['face', 'unknown'], queryFn: async () => (await api.get('/face/unknown')).data.events as any[] });
   if (status.isLoading) return <LoadingScreen />;

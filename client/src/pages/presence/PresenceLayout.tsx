@@ -7,8 +7,11 @@ import PageHeader from '@/components/PageHeader';
 
 const TABS = [
   { to: '/presence', label: 'Sessions', end: true, admin: false },
+  { to: '/presence/kiosk', label: 'Kiosk', end: false, admin: false },
+  { to: '/presence/enrollment', label: 'Enrollment', end: false, admin: true },
   { to: '/presence/activity', label: 'Activity', end: false, admin: false },
   { to: '/presence/analytics', label: 'Analytics', end: false, admin: false },
+  { to: '/presence/insights', label: 'Insights', end: false, admin: false },
   { to: '/presence/simulator', label: 'Simulator', end: false, admin: true },
 ];
 

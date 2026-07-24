@@ -1,452 +1,225 @@
-# Meridian Tech Stack
-
-This document is based on the current codebase scan across the root workspace,
-`client`, `server`, Prisma schema/seed data, route/service layers, frontend
-pages/components/hooks/stores, local ML model manifests, Docker Compose, and
-project docs. Generated/vendor output such as `node_modules`, `client/dist`,
-SQLite database files, and model binaries was treated as runtime/build output,
-not authored application code.
-
-## Product Architecture
-
-Meridian is a trust-first school operating system built as a TypeScript
-monorepo:
-
-- Frontend: React/Vite single-page app for dashboards, ERP workflows, AI
-  engines, attendance kiosks, digital twin, reports, notifications, and role
-  based self-service portals.
-- Backend: Node.js/Express API with Prisma data access, authentication, RBAC,
-  realtime events, AI service wrappers, and domain services.
-- Data core: Prisma models for school operations plus an append-only event
-  store, audit logs, AI logs, notifications, predictions, documents, emergency
-  incidents, attendance, fees, timetables, and face embeddings.
-- Trust layer: every important automated action is explainable, audited, and
-  reversible where the domain allows it.
-
-## Stack Already Used
-
-### Workspace And Language
-
-- npm workspaces for `client` and `server`.
-- TypeScript across frontend, backend, Prisma seed scripts, and shared
-  contracts.
-- ES modules in both client and server packages.
-- `concurrently` for running the Vite client and Express API together.
-- `tsx` for server development and Prisma seeding.
-- `tsc` for production builds and typechecking.
-
-Current installed highlights:
-
-- TypeScript `5.9.3`
-- Vite `6.4.3`
-- React `18.3.1`
-- Express `4.22.2`
-- Prisma `5.22.0`
-
-### Frontend
-
-- React 18 with React Strict Mode.
-- Vite with `@vitejs/plugin-react`.
-- React Router DOM for client routing and role-scoped pages.
-- TanStack React Query for server state, caching, refetching, and realtime
-  invalidation.
-- Zustand for auth/session state, command palette state, and toast state.
-- Axios for API calls with JWT request interception and 401 handling.
-- Tailwind CSS, PostCSS, Autoprefixer, `clsx`, and `tailwind-merge` for the
-  design system.
-- Framer Motion for page transitions, dashboards, command palette, modals,
-  gauges, scanning effects, and micro-interactions.
-- Recharts for analytics visualizations such as attendance trends.
-- Lucide React for the icon system.
-- date-fns is installed for date utilities.
-- React Hook Form and `@hookform/resolvers` are installed and ready for richer
-  forms, although most current forms are implemented with local React state.
-- Google Fonts are loaded in `client/index.html`: Inter, Inter Tight, and IBM
-  Plex Mono.
-
-### Browser APIs And Edge AI
-
-- Web Speech API for voice commands in the command palette and Copilot.
-- MediaDevices/getUserMedia for webcam capture.
-- WebGL backend through `@vladmandic/face-api`/TensorFlow.js where available.
-- Local storage for the current JWT token.
-- Canvas APIs for face overlays, brightness sampling, and camera quality
-  checks.
-
-### Computer Vision And Face Recognition
-
-- `@vladmandic/face-api` for browser-side face detection, landmarks, and
-  128-dimensional recognition embeddings.
-- Local model assets under `client/public/models`:
-  - Tiny Face Detector
-  - 68-point face landmark model
-  - Face recognition model
-- On-device face enrollment with multiple poses: front, left, right, up, down.
-- Quality gates for detector confidence, face size, brightness, and framing.
-- Blink/liveness detection based on eye aspect ratio.
-- Cosine nearest-neighbor matching against enrolled vectors.
-- Privacy model: raw frames/images are discarded; only numeric embeddings are
-  stored.
-
-### Backend API
-
-- Node.js with Express.
-- TypeScript ESM backend.
-- Prisma Client as the database access layer.
-- Socket.io for realtime school-scoped broadcasts.
-- OpenAI SDK for grounded Copilot/report generation when an API key is
-  configured.
-- Deterministic fallback paths so demos continue working without OpenAI.
-- Zod for request body validation.
-- JWT auth with `jsonwebtoken`.
-- Password hashing with `bcryptjs`.
-- RBAC middleware for Super Admin, Admin, Principal, Teacher, Student, and
-  Parent access.
-- Multer with memory storage for document upload simulation.
-- Helmet, CORS, compression, cookie-parser, express-rate-limit, and Morgan for
-  security, cross-origin access, response compression, cookies, rate limiting,
-  and dev logging.
-
-### Database And Persistence
-
-- Prisma schema currently configured for SQLite for zero-setup local demos.
-- Local database file: `server/prisma/meridian.db` exists locally and is ignored
-  by Git.
-- Schema is written to stay portable to PostgreSQL: string constants instead of
-  native enums and JSON payloads stored as strings.
-- Docker Compose includes:
-  - PostgreSQL 16 Alpine for production-grade persistence.
-  - Redis 7 Alpine for future realtime scaling, queues, caching, and rate-limit
-    storage.
-- Prisma seed script creates a realistic school demo: users, roles, classes,
-  staff, students, parents, rooms, buildings, attendance history, fees,
-  documents, AI logs, events, settings, and an initial timetable.
-
-### Current Data Model Areas
-
-- Tenant and identity: School, User, Teacher, Student, Parent, StudentParent.
-- Academic structure: Class, Subject, Building, Room.
-- Operations: Attendance, Fee, Payment, Timetable, TimetableSlot,
-  StaffAbsence, Substitution.
-- Intelligence: Document, ExtractedField, Prediction, AILog.
-- Trust and audit: Event, AuditLog.
-- Communication: Notification, EmergencyIncident.
-- Configuration: Setting.
-- Biometric attendance: FaceEmbedding, FaceEvent.
-- Presence: RFIDCard, RFIDReader, ReaderHeartbeat, AttendanceEvent
-  (append-only raw scan log — Attendance stays the materialized daily view).
-
-### Realtime Layer
-
-- Socket.io server joins clients to `school:{schoolId}` rooms.
-- Realtime broadcasts are used for:
-  - New immutable events
-  - AI log updates
-  - Notifications
-  - Presence scan outcomes and reader online/offline status
-  - Emergency trigger/resolve events
-  - Unknown face events
-- React Query cache invalidation keeps dashboards, attendance, twin, events,
-  stats, and notifications fresh after realtime updates.
-
-### AI And Automation Engines
-
-#### Lumen
-
-- Current role: document intelligence and review queue.
-- Current implementation: deterministic, template-aware extraction for demo
-  resilience.
-- Stores structured extracted fields, confidence scores, review state, and
-  normalized proof-crop coordinates.
-- Uses Multer upload entrypoint and writes AI logs plus immutable events.
-
-#### Kairos
-
-- Current role: timetable optimization and what-if simulation.
-- Current implementation: lightweight custom constraint-style solver.
-- Hard constraints handled in code:
-  - No teacher double-booking.
-  - No class double-booking.
-  - No room/lab double-booking.
-  - Lab requirements.
-  - Teacher weekly hour caps.
-- Soft scoring includes spread of cognitive load and conflict penalties.
-- Returns explainable conflicts and suggested fixes.
-
-#### Pulse
-
-- Current role: core ERP automation.
-- Covers students, staff, classes, attendance, fees, payments, notifications,
-  role dashboards, and family/teacher/admin views.
-- Uses event recording for meaningful state changes.
-
-#### Foresight
-
-- Current role: predictive resource allocation.
-- Current implementation: transparent data-derived forecasting from attendance,
-  fee, teacher, and class data.
-- Produces absence, substitute-demand, attendance-trend, and fee-risk
-  predictions with SHAP-style driver explanations.
-
-#### Presence
-
-- Current role: event-driven attendance platform. RFID, manual and face
-  recognition all normalize to one `ScanInput` and flow through a single
-  `processScan()` pipeline (`server/src/services/presence/engine.ts`) —
-  attendance is the event that drives the rest of the ERP, not a feature
-  bolted onto it.
-- Full RFID card lifecycle (issue/replace/disable/lost/broken/reissue,
-  duplicate-UID detection) and reader fleet management (heartbeat, online/
-  offline sweep, per-reader device key).
-- Configurable duplicate-scan window, late-arrival policy, and entry/exit/
-  re-entry direction inference, all evaluated inside one transaction per
-  scan.
-- Unknown cards raise a reviewable security notification instead of ever
-  creating attendance.
-- A production-shaped simulator drives the same pipeline a real reader
-  would — swapping in hardware means pointing a small gateway at the same
-  `/api/presence/scan` endpoint with a device key.
-- Face enrollment, live kiosk recognition and liveness checks are unchanged;
-  the kiosk's attendance write now goes through the same shared engine.
-
-#### Copilot
-
-- Current role: grounded operational assistant for administrators.
-- Uses live database snapshots and event-store context.
-- Uses OpenAI text generation when configured; otherwise routes through
-  deterministic intents.
-- Logs every answer into the AI Trust Ledger.
-
-### Trust Core
-
-- Append-only `Event` table is the source for audit, undo, and Time Machine.
-- `recordEvent` writes an immutable event and broadcasts it in realtime.
-- `undoEvent` uses domain-specific reversers for attendance marks, fee
-  payments, student creation, and document verification.
-- Compensating events preserve ledger honesty after undo.
-- `AILog` records engine, action, reason, confidence, input, output, actor, and
-  reversibility.
-- `AuditLog` records user actions such as login and CRUD actions.
-
-### Security And Privacy
-
-- JWT bearer auth.
-- Password hashing with bcrypt.
-- API and UI role guards.
-- School-scoped routes through `schoolId` from the JWT payload.
-- Rate limiting on `/api`.
-- Helmet security headers.
-- CORS configured for the client origin.
-- Face attendance stores embeddings, not raw images.
-- Emergency actions and AI actions are logged.
-- Trust Ledger gives judges a clear "why did AI do this?" story.
-
-### Dev, Build, And Local Runtime
-
-- Root commands:
-  - `npm run install:all`
-  - `npm run db:setup`
-  - `npm run seed`
-  - `npm run dev`
-  - `npm run build`
-  - `npm run start`
-- Client:
-  - `npm --prefix client run dev`
-  - `npm --prefix client run build`
-  - `npm --prefix client run preview`
-  - `npm --prefix client run typecheck`
-- Server:
-  - `npm --prefix server run dev`
-  - `npm --prefix server run build`
-  - `npm --prefix server run start`
-  - `npm --prefix server run db:setup`
-  - `npm --prefix server run seed`
-  - `npm --prefix server run typecheck`
-
-## Installed But Not Fully Exploited Yet
-
-- Redis is present in Docker Compose but not yet wired into Socket.io scaling,
-  job queues, caching, or rate limiting.
-- PostgreSQL is documented and provisioned through Docker Compose, but Prisma is
-  currently set to SQLite.
-- React Hook Form is installed but current forms are mostly local state.
-- OpenAI is wired for Copilot/report generation, while Lumen extraction is still
-  deterministic rather than true OCR/vision.
-- The face service comments mention FAISS/pgvector as scale paths; neither is
-  implemented yet.
-- There is no dedicated automated test stack in the current package manifests.
-
-## Stack To Add For A Winning-Level Hackathon Demo
-
-These are the highest-impact additions that fit the current architecture
-without derailing the product.
-
-### Production Data Layer
-
-- Move the demo deployment to PostgreSQL using the existing Prisma portability
-  plan.
-- Use Prisma migrations instead of only `db push` for a credible production
-  story.
-- Add Redis for:
-  - Background jobs.
-  - Socket.io multi-instance adapter.
-  - Cache for dashboards/predictions.
-  - Durable rate-limit storage.
-
-Recommended path:
-
-- PostgreSQL on Neon, Supabase, Railway, Render, or Docker for the hackathon
-  environment.
-- Redis on Upstash, Railway, Render, or Docker.
-- Keep SQLite as the local zero-friction fallback.
-
-### Background Jobs
-
-- Add BullMQ backed by Redis.
-- Queue document processing, report generation, prediction refreshes, face
-  gallery rebuilds, and notification fan-out.
-- Show job states in the UI for judge-friendly reliability.
-
-### Real Document Intelligence
-
-- Upgrade Lumen from deterministic extraction to real OCR plus structured AI
-  mapping.
-- Good options:
-  - Tesseract.js for in-browser or Node OCR.
-  - PaddleOCR or Python OCR microservice for stronger local extraction.
-  - Cloud OCR such as Google Document AI, Azure AI Document Intelligence, or
-    AWS Textract if external services are allowed.
-  - OpenAI vision-capable extraction with strict JSON schema for field mapping
-    and confidence/provenance explanations.
-- Preserve the current proof-crop UX because it is one of the strongest trust
-  differentiators.
-
-### Stronger Timetable Optimization
-
-- Keep the current custom Kairos solver for demo speed, but add a real solver
-  backend for credibility.
-- Best upgrade path:
-  - OR-Tools CP-SAT in a small Python service for hard constraints and optimal
-    schedules.
-  - Keep the TypeScript service as the explanation/orchestration layer.
-- Add saved scenarios, constraint weights, and before/after score comparison.
-
-### Vector Search And Biometrics Scale
-
-- Add pgvector in PostgreSQL for face embeddings and future semantic search.
-- Alternative local scale path: FAISS service for nearest-neighbor lookup.
-- Keep cosine similarity and current thresholding as the first-pass baseline.
-- Add vector indexes when enrollment grows beyond small demo size.
-
-### AI Reliability Layer
-
-- Keep the OpenAI SDK wrapper model-agnostic through `OPENAI_MODEL`.
-- Add strict JSON schemas for every AI action that writes state.
-- Add confidence calibration and "needs human review" thresholds.
-- Add prompt/version logging to `AILog` so judges can see reproducibility.
-- Add evaluation fixtures for Copilot, Lumen, Foresight, and Reports.
-
-### Realtime And Offline Resilience
-
-- Add Socket.io Redis adapter for horizontal scaling.
-- Add service-worker caching for the client.
-- Add an offline attendance queue for classroom/kiosk mode.
-- Sync queued attendance events back through the same event store when the
-  device reconnects.
-
-### File Storage
-
-- Add object storage for uploaded documents instead of memory-only uploads.
-- Good hackathon-ready options:
-  - S3-compatible storage.
-  - Supabase Storage.
-  - Cloudflare R2.
-  - Railway/Render disk only for quick demos, not long-term production.
-- Store URLs in the existing `Document.fileUrl` field.
-
-### Testing And Quality
-
-- Add Vitest for TypeScript unit tests.
-- Add React Testing Library for critical UI flows.
-- Add Supertest for Express route tests.
-- Add Playwright for end-to-end demo flows:
-  - Login as each role.
-  - Mark attendance.
-  - Run Kairos solve.
-  - Upload/process Lumen document.
-  - Ask Copilot.
-  - Trigger/resolve emergency drill.
-  - Undo an event in Trust Core.
-- Add a test database strategy using SQLite for fast tests and PostgreSQL for
-  integration smoke tests.
-
-### Observability
-
-- Add structured logging with Pino or Winston.
-- Add Sentry for frontend/backend errors.
-- Add OpenTelemetry spans around AI calls, Prisma queries, background jobs, and
-  realtime broadcasts.
-- Add PostHog or a similar product analytics layer for demo insights.
-
-### CI/CD And Deployment
-
-- Add GitHub Actions:
-  - Install dependencies.
-  - Typecheck client and server.
-  - Build client and server.
-  - Run tests once added.
-  - Run Prisma validation/generation.
-- Deployment options:
-  - Vercel or Netlify for the Vite client.
-  - Render, Railway, Fly.io, or Docker VPS for the Express API.
-  - Managed PostgreSQL and Redis for reliability.
-- Add environment variable templates:
-  - `DATABASE_URL`
-  - `JWT_SECRET`
-  - `JWT_EXPIRES_IN`
-  - `CLIENT_ORIGIN`
-  - `OPENAI_API_KEY`
-  - `OPENAI_MODEL`
-  - Object storage credentials when added.
-
-## Hackathon Positioning By Stack
-
-### What Judges Can See Immediately
-
-- React/Tailwind/Framer Motion gives a polished command-center experience.
-- Socket.io makes the app feel live instead of static.
-- Prisma schema shows a real school operating model, not a toy demo.
-- Face recognition runs on-device and avoids raw biometric image storage.
-- Trust Core makes the AI explainable, reversible, and auditable.
-- Deterministic fallbacks make the demo reliable even when external AI fails.
-
-### What Makes The Idea Defensible
-
-- The product is not just "AI chat over school data"; it has operational
-  systems, role-based access, event sourcing, and auditability.
-- AI actions are logged with confidence and reasons.
-- Attendance, fees, documents, timetable, predictions, emergency mode, and
-  reports all connect through the same source of truth.
-- The current architecture can move from SQLite to PostgreSQL without a rewrite.
-- The same realtime layer supports admin, teacher, parent, student, and kiosk
-  surfaces.
-
-### Highest-Impact Next Build Order
-
-1. PostgreSQL + Prisma migrations.
-2. Real OCR for Lumen.
-3. BullMQ + Redis background jobs.
-4. Playwright demo tests.
-5. OR-Tools-backed Kairos solver.
-6. pgvector or FAISS for scalable face/semantic matching.
-7. Object storage for uploaded documents.
-8. Sentry/OpenTelemetry observability.
-9. Offline attendance queue/service worker.
-10. CI/CD with typed build and smoke tests.
-
-## One-Line Stack Pitch
-
-Meridian uses React, TypeScript, Vite, Tailwind, Framer Motion, React Query,
-Zustand, Node, Express, Prisma, Socket.io, OpenAI, SQLite/PostgreSQL, Redis,
-and on-device TensorFlow.js face recognition to deliver a realtime,
-event-sourced, audit-first AI operating system for schools.
+# Meridian — Tech Stack
+
+The complete, current technology stack for Meridian, the trust-first school
+operating system — plus the planned **Flutter (Riverpod) mobile apps** for
+Principal, Teacher, Student, and Parent. This reflects the codebase as it
+stands after the RFID → Face-Recognition + session-QR redesign, the two Python
+AI microservices, and the consolidated Presence module.
+
+---
+
+## 1. System Architecture at a Glance
+
+Meridian runs as **four cooperating runtimes today**, with a **fifth (Flutter
+mobile) planned** — all speaking to one Express API over JWT:
+
+| # | Runtime | Tech | Port | Role |
+|---|---------|------|------|------|
+| 1 | Web client | React 18 + Vite + TypeScript | 5173 | Command-center SPA for all roles + projector/kiosk screens |
+| 2 | API / backend | Node.js + Express + Prisma + Socket.io | 4000 | Business logic, auth/RBAC, realtime, Trust Core |
+| 3 | Intelligence service | Python + FastAPI + scikit-learn | 8010 | Dashboard intelligence, forecasts, health, at-risk index (read-only) |
+| 4 | Face service | Python + FastAPI + InsightFace | 8020 | Pixels → 512-D ArcFace embedding (in-memory, image discarded) |
+| 5 | **Mobile (planned)** | **Flutter + Dart + Riverpod** | — | **Native apps for Principal / Teacher / Student / Parent** |
+
+Design philosophy shared across every runtime: **one engine, one source of
+truth.** Every automated action is explainable, audited, and reversible where
+the domain allows. Clients (web today, Flutter tomorrow) are thin — they never
+duplicate business logic; they call the same REST API and subscribe to the same
+Socket.io stream.
+
+```
+                         ┌──────────────────────────────┐
+   Web SPA (5173) ─────► │                              │ ─── Socket.io ──► live updates
+   Flutter apps  ─────►  │   Express API (4000)         │
+   (Principal/Teacher/   │   Prisma · JWT/RBAC · Trust  │ ─── HTTP ──► Intelligence (8010)
+    Student/Parent)      │   Core (Event/Audit/AI Ledger)│ ─── HTTP ──► Face service (8020)
+                         └──────────────┬───────────────┘
+                                        │ Prisma
+                                 SQLite (dev) / PostgreSQL (prod-ready)
+```
+
+---
+
+## 2. Final Tech Stack (by layer)
+
+### Frontend — Web (`client/`)
+- **React 18.3** with Strict Mode, **Vite 6.4**, **TypeScript 5.9**, ES modules.
+- **React Router DOM 6** — role-scoped routing and guards.
+- **TanStack React Query 5** — server state, caching, refetch, realtime invalidation.
+- **Zustand 5** — auth/session, command palette, and toast stores.
+- **Axios 1.7** — API client with JWT request interceptor and 401 handling (relative `/api`, proxied through Vite).
+- **socket.io-client 4.8** — realtime, joined to a school-scoped room (relative origin, proxied).
+- **Tailwind CSS** + PostCSS + Autoprefixer + `clsx` + `tailwind-merge` — design system.
+- **Framer Motion 11** — transitions, gauges, kiosk scan effects, micro-interactions.
+- **Recharts 2** — analytics visualizations.
+- **Lucide React** — icon system.
+- **qrcode 1.5** — renders the attendance-session QR (encodes a `/scan` URL, never raw data).
+- **@vladmandic/face-api 1.7** — **browser-side face detection + 68-pt landmarks + blink/liveness only** (recognition is server-side; see §5).
+- **date-fns 4**, **React Hook Form 7** (+ `@hookform/resolvers`), **Zod 3** (shared validation).
+- Fonts (Google Fonts in `index.html`): **Fraunces**, **Plus Jakarta Sans**, **IBM Plex Mono**.
+
+### Backend — API (`server/`)
+- **Node.js + Express 4**, **TypeScript ESM**, run with `tsx` (dev) / `tsc` (build).
+- **Prisma 5.22** (`@prisma/client`) — data access layer.
+- **Socket.io 4.8** — realtime, school-scoped broadcasts (`school:{schoolId}` rooms).
+- **Zod** — request validation; **jsonwebtoken** — JWT auth; **bcryptjs** — password hashing.
+- **Multer** (memory storage) — document/image upload.
+- **Document intelligence libs**: **tesseract.js 7** (OCR), **pdfjs-dist 6** (PDF parse + AcroForm digital-fill), **sharp 0.35** (image pre-processing), **pdfkit** + **@napi-rs/canvas** (PDF generation), **exceljs 4** (spreadsheet export).
+- **OpenAI SDK 4** — grounded Copilot/report generation when a key is set; deterministic fallback otherwise.
+- **Helmet, CORS, compression, cookie-parser, express-rate-limit, morgan** — hardening & logging.
+- **Vitest** — 71 passing unit/route tests (attendance engine, RBAC, Kairos, Lumen, cascade, etc.).
+
+### Python AI Microservices
+- **Intelligence engine** (`intelligence/`, FastAPI + uvicorn, :8010): **pandas, numpy, scikit-learn, scipy, joblib**. Read-only SQLite access; produces dashboard health scores, attendance/fee forecasts, substitute-demand, and the at-risk index using interpretable statistical models + IsolationForest (heavy libs deliberately avoided at this data scale). No hot reload — restart after edits. Node proxies it at `GET /api/dashboard/intelligence`; when down, the UI shows an explicit offline state (never invented numbers).
+- **Face service** (`faceservice/`, FastAPI + uvicorn, :8020): **insightface (buffalo_l ArcFace), onnxruntime, opencv-python-headless, numpy**. Turns a base64 frame into a **512-D embedding in memory and discards the image** — the only place raw pixels are handled. All matching + storage stay in Node.
+- Both target **Python 3.11+** (tested on 3.14).
+
+### Data & Persistence
+- **Prisma schema** — SQLite for zero-setup local demos; written to stay **PostgreSQL-portable** (string constants instead of native enums, JSON stored as strings).
+- **Docker Compose** provisions **PostgreSQL 16 Alpine** and **Redis 7 Alpine** for the production path.
+- Seed script builds a realistic school: users/roles, classes, staff, students, parents, buildings/rooms, curriculum plans, attendance history, fees, documents, AI logs, events, settings, and an initial **published timetable (v1)**.
+
+### DevOps / Tooling
+- **npm workspaces** (`client`, `server`) + **concurrently**; Python services run via `uvicorn`.
+- Root scripts: `npm run dev` (server+client), `npm run intelligence`, `npm run faceservice`, `npm run dev:fresh` / `dev:stop` (free stale ports), `npm run build`, `npm run seed`.
+- Docker Compose for Postgres + Redis; env template covers `DATABASE_URL`, `JWT_SECRET`, `CLIENT_ORIGIN`, `FACE_SERVICE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`.
+
+### Mobile (planned) — Flutter + Riverpod
+See **§8** for the full breakdown.
+
+---
+
+## 3. Data Model (current)
+
+- **Tenant & identity:** School, User, Teacher, Student, Parent, StudentParent.
+- **Academic structure:** Class, Subject, Building, Room, AcademicConfig, ClassSubjectPlan.
+- **Timetable (Kairos):** Timetable, TimetableSlot, StaffAbsence, Substitution.
+- **Attendance (Presence, face + QR):** AttendanceSession, AttendanceVerification (per-student state machine), AttendanceEvent (append-only mark log), Attendance (materialized daily view).
+- **Biometrics:** FaceEnrollment (consent record), FaceEmbedding (512-D vectors + model id), FaceEvent (unknown/proxy review queue).
+- **Documents (Lumen):** Document, ExtractedField.
+- **Intelligence:** Prediction, AILog.
+- **Trust & audit:** Event (append-only), AuditLog.
+- **Communication & ops:** Notification, EmergencyIncident, Fee, Payment, Setting.
+
+> RFID is fully removed — `RFIDCard`, `RFIDReader`, and `ReaderHeartbeat` no
+> longer exist. Attendance is now session-based Face + QR.
+
+---
+
+## 4. Realtime Layer
+- Socket.io joins each client to `school:{schoolId}`; the room comes from the JWT, never a client request.
+- Broadcasts: new immutable events, AI-log updates, notifications, attendance/verification outcomes, timetable publish/rollback, emergency trigger/resolve, and unknown-face events.
+- React Query cache invalidation keeps dashboards, attendance, timetable, twin, and notifications fresh. Flutter will mirror this by invalidating Riverpod providers on the same socket events.
+
+---
+
+## 5. Presence — Face Recognition + Session QR (current)
+
+The redesigned attendance flow — **face is primary, QR is the fallback**, and
+everything converges on one state machine and one engine.
+
+- **Session model:** a teacher opens an `AttendanceSession` (crypto token, auto-expiring, default 5 min) from a projector-ready screen showing a large QR + live countdown + register.
+- **Face pipeline:** browser `face-api.js` does detection + blink liveness only → captures a frame → sends the **image** to Node → Node forwards to the Python face service → **512-D ArcFace embedding computed in memory and discarded** → cosine 1:N match in Node (threshold 0.42) → attendance engine marks `PRESENT`.
+- **QR fallback (student phone):** the projected QR encodes `${origin}/scan?s=<sessionId>&t=<token>` (URL, token only — never student identity). The student opens `/scan`, logs in, taps **Mark My Attendance** → `POST /presence/session/:id/qr` with identity from the JWT → `QR_VERIFIED`. Face (or session expiry) resolves it to `PRESENT` / `UNVERIFIED_QR`.
+- **Anti-proxy:** a QR claiming student A while the face matches B → `PROXY_ATTEMPT` (no attendance, security alert, review-queue event).
+- **State machine:** PENDING → (FACE / QR / MANUAL) → PRESENT · QR_VERIFIED · UNVERIFIED_QR · PROXY_ATTEMPT · ABSENT.
+- **Post-session:** ending a session opens an **Attendance Summary** with counts, verification-method breakdown, integrity checklist, and **PDF (pdfkit) + Excel (exceljs) exports** built from stored data.
+- **UI consolidation:** Face Recognition (Kiosk, Enrollment, Insights) now lives as tabs inside the single **Presence** module alongside Sessions, Activity, Analytics, and Simulator.
+- **Privacy:** only embeddings are stored, never raw images; enrollment is consent-first.
+
+---
+
+## 6. AI & Automation Engines
+
+- **Pulse** — core ERP: students, staff, classes, attendance, fees/payments, notifications, role dashboards; records events on meaningful state changes.
+- **Kairos** — timetable engine: a custom constraint solver enforcing hard rules (no teacher/class/room double-booking, lab requirements, weekly caps) with soft scoring (spread, gaps, heavy-subject timing). Workflow: **Draft → Review/Edit/Lock → Approve (Principal) → Publish → Rollback**, plus emergency substitutes and room-closure re-homing. Emits explainable conflicts and a **cost-ranked "cheapest way out"** when something can't fit.
+- **Lumen** — document intelligence: **tesseract.js OCR + pdfjs** parse (with AcroForm digital-fill), a two-layer field model (expected vs commit policy), confidence + proof-crop provenance, and CSV/Excel export. Never launders machine-read data as human-verified.
+- **Foresight** — predictive resource allocation via the Python intelligence service: absence, substitute-demand, attendance-trend, and fee-risk forecasts with driver explanations. Honest offline state when the service is down.
+- **Presence** — see §5.
+- **Copilot** — grounded admin assistant over live DB + event-store context; OpenAI when configured, deterministic intents otherwise; every answer logged to the AI Trust Ledger.
+
+---
+
+## 7. Trust Core, Security & Privacy
+
+- **Event** (append-only) powers audit, undo, and the Time Machine; `recordEvent` writes + broadcasts, reversers undo attendance marks, fee payments, student creation, doc verification; compensating events keep the ledger honest.
+- **AILog** records engine, action, reason, confidence, input, output, actor, reversibility. **AuditLog** records user actions.
+- **Security:** JWT bearer auth, bcrypt hashing, API + UI role guards (Super Admin / Admin / Principal / Teacher / Student / Parent), school-scoped routes from the JWT, `/api` rate limiting, Helmet headers, CORS to the client origin. Face embeddings not raw images; emergency/AI actions logged.
+
+---
+
+## 8. Mobile Apps — Flutter + Riverpod (planned)
+
+Native apps for the four human roles, built as **thin clients over the existing
+Express API + Socket.io** — the same JWT, the same RBAC, the same Trust Core.
+**Zero business logic is re-implemented on the device**, exactly mirroring how
+the web SPA works.
+
+### 8.1 Approach
+- **One Flutter codebase, role-aware** (recommended): the logged-in user's role selects the navigation shell and feature set — this mirrors the single web SPA with role guards and keeps one code path against one API. Optional **build flavors** (`staff` vs `family`) can produce separate store listings later without forking logic.
+- **Material 3** UI themed to Meridian's tokens; **Fraunces / Plus Jakarta Sans** via `google_fonts`.
+
+### 8.2 State management — Riverpod (as requested)
+- **flutter_riverpod 2.x** + **riverpod_annotation** / **riverpod_generator** (codegen).
+- **AsyncNotifier / Notifier** providers hold server state with loading/error/data — the Riverpod equivalent of React Query on web (caching, refresh, invalidation on socket events).
+- Provider layers: `authProvider` (session + JWT), `apiClientProvider` (configured Dio), per-feature **repository providers**, and screen-level `FutureProvider`/`AsyncNotifier`s. `ref.invalidate(...)` on incoming socket events keeps screens live.
+
+### 8.3 Mobile stack (packages)
+| Concern | Package |
+|---|---|
+| State management | `flutter_riverpod`, `riverpod_annotation` + `riverpod_generator` |
+| Networking (REST) | `dio` (+ interceptors for JWT bearer & 401 → logout/refresh) |
+| Realtime | `socket_io_client` (school room, mirrors web) |
+| Routing + guards | `go_router` (role-based redirects, mirrors `RequireRole`) |
+| Secure token store | `flutter_secure_storage` (JWT), `shared_preferences` (prefs) |
+| Models / serialization | `freezed` + `json_serializable` (DTOs mirror server contracts) |
+| QR scan / display | `mobile_scanner` (student scans session QR), `qr_flutter` |
+| Camera (face capture) | `camera` → uploads frame to `/presence/session/:id/face` (server embeds; no biometric stored on device) |
+| Push notifications | `firebase_messaging` + `flutter_local_notifications` |
+| Charts | `fl_chart` (attendance trends, dashboards) |
+| Fonts / theming | `google_fonts`, Material 3 |
+
+### 8.4 Per-role feature scope
+- **Principal** — full command center on the go: dashboards & health, **Kairos approve/publish/rollback**, attendance overview, Foresight forecasts, emergency broadcast, Trust ledger, reports.
+- **Teacher** — **start an attendance session** (projector QR + live register), run the **face kiosk** (device camera), take/adjust attendance, view timetable, **arrange cover** for an absence, class rosters.
+- **Student** — view timetable, **scan the session QR to mark attendance** (native `/scan` flow → `POST /presence/session/:id/qr`, identity from JWT), fees, notifications.
+- **Parent** — child attendance (realtime "present at 9:02" push), fees & payments, timetable, emergency alerts.
+
+### 8.5 Integration & backend additions
+- Auth: `POST /auth/login` → store JWT securely → `GET /auth/me` on boot; Dio attaches the bearer; 401 clears the session. Same school-scoping and role guards as web.
+- Realtime: connect `socket_io_client` with the JWT; invalidate the matching Riverpod providers on `event`, `notification`, `attendance:*`, and `timetable:*` messages.
+- **New backend work for mobile (roadmap, additive):** an FCM device-token register/unregister endpoint + server-side push fan-out on attendance/fee/emergency notifications; optional refresh-token rotation for long-lived mobile sessions. No changes to existing engines.
+
+---
+
+## 9. Installed but Not Yet Fully Exploited
+- **Redis** provisioned (Docker Compose) but not yet wired to Socket.io scaling, job queues, caching, or durable rate limiting.
+- **PostgreSQL** provisioned/portable, but Prisma runs on SQLite by default.
+- **React Hook Form** installed; most web forms still use local state.
+- Face-service comments note **FAISS/pgvector** as the scale path for embeddings (cosine linear scan is the current baseline).
+
+---
+
+## 10. Roadmap — Highest-Impact Next Builds
+1. **Flutter mobile apps** (Principal/Teacher/Student/Parent) on Riverpod — §8.
+2. Push notifications: FCM token endpoint + server fan-out.
+3. PostgreSQL + Prisma migrations (production data layer).
+4. Redis: Socket.io adapter, BullMQ background jobs, cache, rate-limit store.
+5. pgvector / FAISS for face + semantic search at scale.
+6. Object storage (S3/R2/Supabase) for uploaded documents.
+7. OR-Tools CP-SAT service behind Kairos for provably optimal schedules (keep TS as the explanation/orchestration layer).
+8. Observability: Pino/Winston logs, Sentry, OpenTelemetry spans around AI/Prisma/socket work.
+9. Playwright end-to-end demo flows; CI/CD with typed build + smoke tests.
+10. Offline attendance queue / service worker for classroom kiosk mode.
+
+---
+
+## 11. One-Line Stack Pitch
+
+Meridian is a realtime, event-sourced, audit-first AI operating system for
+schools — **React + TypeScript + Vite** web, a **Node/Express + Prisma +
+Socket.io** core, two **Python FastAPI** services (**scikit-learn** intelligence
+and **InsightFace/ArcFace** face recognition), **SQLite→PostgreSQL** data with
+**Redis** on deck, and **Flutter + Riverpod** apps for Principal, Teacher,
+Student, and Parent — all sharing one API, one Trust Core, and one honest source
+of truth.

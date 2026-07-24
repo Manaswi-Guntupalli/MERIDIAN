@@ -151,6 +151,7 @@ export interface FeeRow {
   due: number;
   dueDate: string;
   status: string;
+  overdue?: boolean;
   student: string;
   studentId: string;
   class?: string;

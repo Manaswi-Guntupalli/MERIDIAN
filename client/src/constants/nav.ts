@@ -17,7 +17,6 @@ import {
   FileBarChart,
   Bell,
   SlidersHorizontal,
-  Nfc,
   UserCog,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -50,8 +49,7 @@ export const NAV: NavItem[] = [
   { to: '/lumen', label: 'Lumen · Docs', icon: FileScan, roles: ADMIN, group: 'Engines', engine: 'LUMEN' },
   { to: '/kairos', label: 'Kairos · Timetable', icon: CalendarClock, roles: STAFF, group: 'Engines', engine: 'KAIROS' },
   { to: '/foresight', label: 'Foresight', icon: Radar, roles: ADMIN, group: 'Engines', engine: 'FORESIGHT' },
-  { to: '/presence', label: 'Presence · Face', icon: Nfc, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
-  { to: '/face-recognition', label: 'Face Recognition', icon: ScanFace, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
+  { to: '/presence', label: 'Presence · Face', icon: ScanFace, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
 
   { to: '/trust', label: 'Time Machine', icon: History, roles: ADMIN, group: 'Trust Core' },
   { to: '/users', label: 'Users & Access', icon: UserCog, roles: ADMIN, group: 'Trust Core' },
@@ -76,7 +74,6 @@ export const ROUTE_ROLES: Record<string, Role[]> = {
   '/kairos': STAFF,
   '/foresight': ADMIN,
   '/presence': STAFF,
-  '/face-recognition': STAFF,
   '/trust': ADMIN,
   '/reports': ADMIN,
   '/emergency': STAFF,

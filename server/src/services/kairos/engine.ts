@@ -66,10 +66,13 @@ export class ScheduleState {
   readonly teacherUnavailable = new Set<string>();
   readonly roomUnavailable = new Set<string>();
   readonly teacherPreferredFree = new Set<string>();
+  readonly classNameById = new Map<string, string>(); // for human-readable clash messages
 
   classBusy = new Set<string>();
   teacherBusy = new Set<string>();
   roomBusy = new Set<string>();
+  teacherBusyAt = new Map<string, string>(); // teacher|day|period → the class they're already teaching
+  roomBusyAt = new Map<string, string>(); // room|day|period → the class already in the room
   teacherWeekly = new Map<string, number>();
   teacherDailyCount = new Map<string, number>();
   teacherPeriods = new Map<string, Set<number>>(); // teacher|day → periods
@@ -96,6 +99,7 @@ export class ScheduleState {
       this.roomById.set(r.id, r);
       for (const u of r.unavailable) this.roomUnavailable.add(ck(r.id, u.day, u.period));
     }
+    for (const l of input.lessons) if (!this.classNameById.has(l.classId)) this.classNameById.set(l.classId, l.className);
   }
 
   qualified(code: string): TeacherInfo[] {
@@ -137,13 +141,15 @@ export class ScheduleState {
       issues.push('Outside the school week');
     if (this.blocked.has(`${day}|${period}`)) issues.push('That period is blocked (assembly/exam)');
     if (this.classBusy.has(ck(lesson.classId, day, period)))
-      issues.push(`${lesson.className} already has a lesson then`);
+      issues.push(`${lesson.className} already has a lesson this period`);
     if (!teacher.subjects.includes(lesson.subjectCode))
       issues.push(`${teacher.name} is not qualified for ${lesson.subjectName}`);
-    if (this.teacherBusy.has(ck(teacher.id, day, period)))
-      issues.push(`${teacher.name} is already teaching then`);
+    if (this.teacherBusy.has(ck(teacher.id, day, period))) {
+      const other = this.teacherBusyAt.get(ck(teacher.id, day, period));
+      issues.push(other ? `${teacher.name} is already teaching ${other} this period` : `${teacher.name} is already teaching another class this period`);
+    }
     if (this.teacherUnavailable.has(ck(teacher.id, day, period)))
-      issues.push(`${teacher.name} is unavailable then`);
+      issues.push(`${teacher.name} is unavailable this period`);
     if ((this.teacherWeekly.get(teacher.id) ?? 0) >= teacher.maxWeekly)
       issues.push(`${teacher.name} is at their weekly limit (${teacher.maxWeekly})`);
     if ((this.teacherDailyCount.get(dk(teacher.id, day)) ?? 0) >= teacher.maxDaily)
@@ -157,8 +163,11 @@ export class ScheduleState {
     if (lesson.requiresLab && (!room || room.type !== 'LAB'))
       issues.push(`${lesson.subjectName} needs a laboratory`);
     if (room) {
-      if (this.roomBusy.has(ck(room.id, day, period))) issues.push(`${room.name} is occupied then`);
-      if (this.roomUnavailable.has(ck(room.id, day, period))) issues.push(`${room.name} is unavailable then`);
+      if (this.roomBusy.has(ck(room.id, day, period))) {
+        const inRoom = this.roomBusyAt.get(ck(room.id, day, period));
+        issues.push(inRoom ? `${room.name} is occupied by ${inRoom} this period` : `${room.name} is occupied this period`);
+      }
+      if (this.roomUnavailable.has(ck(room.id, day, period))) issues.push(`${room.name} is unavailable this period`);
       if (room.capacity < lesson.classSize)
         issues.push(`${room.name} seats ${room.capacity} but ${lesson.className} has ${lesson.classSize}`);
     }
@@ -206,7 +215,11 @@ export class ScheduleState {
   place(a: Assignment): void {
     this.classBusy.add(ck(a.classId, a.day, a.period));
     this.teacherBusy.add(ck(a.teacherId, a.day, a.period));
-    if (a.roomId) this.roomBusy.add(ck(a.roomId, a.day, a.period));
+    this.teacherBusyAt.set(ck(a.teacherId, a.day, a.period), this.classNameById.get(a.classId) ?? '');
+    if (a.roomId) {
+      this.roomBusy.add(ck(a.roomId, a.day, a.period));
+      this.roomBusyAt.set(ck(a.roomId, a.day, a.period), this.classNameById.get(a.classId) ?? '');
+    }
     this.teacherWeekly.set(a.teacherId, (this.teacherWeekly.get(a.teacherId) ?? 0) + 1);
     this.teacherDailyCount.set(dk(a.teacherId, a.day), (this.teacherDailyCount.get(dk(a.teacherId, a.day)) ?? 0) + 1);
     let set = this.teacherPeriods.get(dk(a.teacherId, a.day));
@@ -223,7 +236,11 @@ export class ScheduleState {
   remove(a: Assignment): void {
     this.classBusy.delete(ck(a.classId, a.day, a.period));
     this.teacherBusy.delete(ck(a.teacherId, a.day, a.period));
-    if (a.roomId) this.roomBusy.delete(ck(a.roomId, a.day, a.period));
+    this.teacherBusyAt.delete(ck(a.teacherId, a.day, a.period));
+    if (a.roomId) {
+      this.roomBusy.delete(ck(a.roomId, a.day, a.period));
+      this.roomBusyAt.delete(ck(a.roomId, a.day, a.period));
+    }
     this.teacherWeekly.set(a.teacherId, (this.teacherWeekly.get(a.teacherId) ?? 1) - 1);
     this.teacherDailyCount.set(dk(a.teacherId, a.day), (this.teacherDailyCount.get(dk(a.teacherId, a.day)) ?? 1) - 1);
     this.teacherPeriods.get(dk(a.teacherId, a.day))?.delete(a.period);

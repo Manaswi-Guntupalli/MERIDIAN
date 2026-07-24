@@ -17,16 +17,31 @@ router.get(
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
     const { status } = req.query as { status?: string };
-    const fees = await prisma.fee.findMany({
-      where: { schoolId, ...(status ? { status } : {}) },
-      include: { student: { include: { class: true } }, payments: true },
-      orderBy: { dueDate: 'asc' },
-    });
+    // A fee is overdue when it is past its due date and not fully paid —
+    // derived live, independent of the stored (frozen-at-creation) status.
+    const now = Date.now();
+    const isOverdue = (f: { paid: number; amount: number; dueDate: string }) =>
+      f.paid < f.amount && new Date(f.dueDate).getTime() < now;
+
+    const [fees, allFees] = await Promise.all([
+      prisma.fee.findMany({
+        where: { schoolId, ...(status ? { status } : {}) },
+        include: { student: { include: { class: true } }, payments: true },
+        orderBy: { dueDate: 'asc' },
+      }),
+      // The summary describes the whole school, so it stays stable no matter
+      // which status filter the list is showing.
+      prisma.fee.findMany({
+        where: { schoolId },
+        select: { amount: true, paid: true, dueDate: true, studentId: true },
+      }),
+    ]);
     const summary = {
-      total: fees.reduce((a, f) => a + f.amount, 0),
-      collected: fees.reduce((a, f) => a + f.paid, 0),
-      outstanding: fees.reduce((a, f) => a + (f.amount - f.paid), 0),
-      overdue: fees.filter((f) => f.status !== 'PAID').length,
+      total: allFees.reduce((a, f) => a + f.amount, 0),
+      collected: allFees.reduce((a, f) => a + f.paid, 0),
+      outstanding: allFees.reduce((a, f) => a + (f.amount - f.paid), 0),
+      // "Accounts due" = distinct students with a past-due, not-fully-paid fee.
+      overdue: new Set(allFees.filter(isOverdue).map((f) => f.studentId)).size,
     };
     res.json({
       fees: fees.map((f) => ({
@@ -37,6 +52,7 @@ router.get(
         due: f.amount - f.paid,
         dueDate: f.dueDate,
         status: f.status,
+        overdue: isOverdue(f),
         student: f.student.name,
         studentId: f.studentId,
         class: f.student.class?.name,

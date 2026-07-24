@@ -226,7 +226,7 @@ export default function FaceEnroll({
             </div>
             <div className="mt-2 flex w-full max-w-xs gap-2">
               <button onClick={onClose} className="btn-ghost flex-1">Done</button>
-              <button onClick={() => { onClose(); navigate('/face-recognition'); }} className="btn-primary flex-1">
+              <button onClick={() => { onClose(); navigate('/presence/kiosk'); }} className="btn-primary flex-1">
                 <Camera className="h-4 w-4" /> Live Kiosk <ArrowRight className="h-4 w-4" />
               </button>
             </div>

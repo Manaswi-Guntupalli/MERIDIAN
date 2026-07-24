@@ -195,7 +195,17 @@ router.get(
     const present = repAtt.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
     const attendanceRate = repAtt.length ? Math.round((present / repAtt.length) * 100) : 0;
     const outstanding = fees.reduce((a, f) => a + (f.amount - f.paid), 0);
-    const overdueCount = fees.filter((f) => f.status !== 'PAID').length;
+    // "Overdue accounts" = distinct students with a fee past its due date and
+    // not fully paid. Derived live: the stored `status` is a snapshot frozen at
+    // creation — it labels partially-paid past-due fees PARTIAL (not OVERDUE)
+    // and never re-flags a PENDING fee once its due date passes, so counting it
+    // both under- and over-states reality depending on the filter used.
+    const nowMs = Date.now();
+    const overdueCount = new Set(
+      fees
+        .filter((f) => f.paid < f.amount && new Date(f.dueDate).getTime() < nowMs)
+        .map((f) => f.studentId),
+    ).size;
 
     // ── Sub-scores that make up Operational Health (all from live data) ──
     const billed = fees.reduce((a, f) => a + f.amount, 0);

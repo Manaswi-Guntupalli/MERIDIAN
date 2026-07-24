@@ -1,0 +1,17 @@
+{
+  // flutter_app is a real Flutter package. node_modules must never be analyzed
+  // as Dart: a self-referential symlink there mirrors the whole repo (including
+  // flutter_app) and breaks package resolution, producing thousands of phantom
+  // errors. Excluding node_modules keeps the analyzer on the real source only.
+  "dart.analysisExcludedFolders": [
+    "node_modules",
+    "client/node_modules",
+    "server/node_modules"
+  ],
+  "files.watcherExclude": {
+    "**/node_modules/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true
+  }
+}
