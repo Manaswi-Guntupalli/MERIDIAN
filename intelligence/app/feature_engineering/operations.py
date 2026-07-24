@@ -1,47 +1,59 @@
-"""Operations feature engineering — Presence infrastructure reliability."""
-from __future__ import annotations
+"""Operations feature engineering — attendance CAPTURE INTEGRITY.
 
-from datetime import datetime, timedelta, timezone
+Replaces the old RFID-reader-uptime signal. With face + QR attendance, the
+operational health question is: is attendance being captured cleanly? We
+measure it from real events — the share of clean marks vs proxy attempts and
+QR-only-never-verified — plus face-enrollment coverage, which caps how much of
+the school the primary (face) method can even reach.
+"""
+from __future__ import annotations
 
 import pandas as pd
 
 
 def build(frames: dict, anchor_date: str) -> dict:
-    readers: pd.DataFrame = frames["readers"]
-    beats: pd.DataFrame = frames["heartbeats"]
     events: pd.DataFrame = frames["events"]
+    students: pd.DataFrame = frames.get("students_face", pd.DataFrame())
+    sessions: pd.DataFrame = frames.get("sessions", pd.DataFrame())
 
-    online = int((readers["online"] == 1).sum()) if not readers.empty else 0
-    total = int(len(readers))
+    # Face-enrollment coverage — the ceiling on the primary method's reach.
+    enrolled = total_students = 0
+    if not students.empty:
+        active = students[students["active"] == 1]
+        total_students = int(len(active))
+        enrolled = int((active["faceEnrolled"] == 1).sum())
+    coverage = round(enrolled / total_students, 4) if total_students else None
 
-    beats_24h = 0
-    mean_signal = None
-    if not beats.empty:
-        ts = pd.to_datetime(beats["timestamp"], utc=True, errors="coerce")
-        recent = beats[ts >= datetime.now(timezone.utc) - timedelta(hours=24)]
-        beats_24h = int(len(recent))
-        sig = recent["signal"].dropna()
-        mean_signal = round(float(sig.mean()), 3) if len(sig) else None
-
-    ev = {}
+    ev: dict = {}
+    capture_integrity = None
     if not events.empty:
         counts = events["verificationStatus"].value_counts()
+        verified = int(counts.get("VERIFIED", 0) + counts.get("LATE", 0))
+        proxy = int(counts.get("PROXY", 0))
+        unverified_qr = int(counts.get("UNVERIFIED_QR", 0))
         total_ev = int(len(events))
+        # Clean captures / (clean + the two failure modes). A run with no
+        # proxy attempts and no stranded QR-only marks scores 1.0.
+        denom = verified + proxy + unverified_qr
+        capture_integrity = round(verified / denom, 4) if denom else None
+        src = events["source"]
         ev = {
             "events_total": total_ev,
-            "verified": int(counts.get("VERIFIED", 0) + counts.get("LATE", 0)),
-            "duplicates": int(counts.get("DUPLICATE", 0)),
-            "unknown_cards": int(counts.get("UNKNOWN", 0)),
-            "rejected": int(counts.get("REJECTED", 0)),
-            "rejection_rate": round(float(counts.get("REJECTED", 0)) / total_ev, 4),
-            "rfid_share": round(float((events["source"] == "RFID").mean()), 4),
+            "verified": verified,
+            "proxy_attempts": proxy,
+            "unverified_qr": unverified_qr,
+            "face_share": round(float((src == "FACE").mean()), 4),
+            "qr_share": round(float((src == "QR").mean()), 4),
+            "manual_share": round(float((src == "MANUAL").mean()), 4),
         }
 
+    sessions_total = int(len(sessions)) if not sessions.empty else 0
+
     return {
-        "readers_total": total,
-        "readers_online": online,
-        "reader_uptime_now": round(online / total, 4) if total else None,
-        "heartbeats_24h": beats_24h,
-        "mean_signal_24h": mean_signal,
+        "enrollment_coverage": coverage,
+        "enrolled_students": enrolled,
+        "total_students": total_students,
+        "capture_integrity": capture_integrity,
+        "sessions_total": sessions_total,
         **ev,
     }

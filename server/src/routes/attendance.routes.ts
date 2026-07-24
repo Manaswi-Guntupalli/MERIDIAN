@@ -5,7 +5,6 @@ import { asyncHandler, badRequest, notFound } from '../lib/errors.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { validateBody } from '../utils/validate.js';
 import { recordEvent } from '../services/eventStore.js';
-import { processScan } from '../services/presence/engine.js';
 import { assertOwnClass } from '../services/presence/authz.js';
 import { assertNotLocked } from '../services/emergency.js';
 import { ATTENDANCE_STATUS, STAFF } from '../utils/constants.js';
@@ -25,7 +24,6 @@ router.get(
     const students = await prisma.student.findMany({
       where: { schoolId, classId: req.params.classId },
       orderBy: { rollNo: 'asc' },
-      include: { rfidCards: { where: { status: 'ACTIVE' }, take: 1 } },
     });
     const records = await prisma.attendance.findMany({
       where: { schoolId, classId: req.params.classId, date },
@@ -37,7 +35,7 @@ router.get(
         studentId: s.id,
         name: s.name,
         rollNo: s.rollNo,
-        cardUid: s.rfidCards[0]?.uid ?? null,
+        faceEnrolled: s.faceEnrolled,
         status: map.get(s.id)?.status ?? 'UNMARKED',
         source: map.get(s.id)?.source ?? null,
         attendanceId: map.get(s.id)?.id ?? null,
@@ -74,28 +72,35 @@ router.post(
     if (student.classId !== body.classId) throw badRequest('Student is not enrolled in that class');
     await assertOwnClass(req.user!, student.class?.classTeacherId);
 
-    const isLiveEntry = (body.status === 'PRESENT' || body.status === 'LATE') && date === todayStr();
-    if (isLiveEntry) {
-      await processScan({ schoolId, source: 'MANUAL', studentId: body.studentId, direction: 'ENTRY', createdBy: req.user!.sub });
-      const record = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: body.studentId, date } } });
-      return res.json({ record });
-    }
-
+    // Manual daily marking is a direct administrative write to the materialized
+    // Attendance table (no live face/QR session involved), recorded as a
+    // reversible ATTENDANCE_MARKED event. A live PRESENT/LATE mark also writes
+    // an AttendanceEvent so it shows in the Presence feed alongside face/QR marks.
     const existing = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: body.studentId, date } } });
-    const record = await prisma.attendance.upsert({
-      where: { studentId_date: { studentId: body.studentId, date } },
-      create: { schoolId, studentId: body.studentId, classId: body.classId, date, status: body.status, source: 'MANUAL', markedById: req.user!.sub },
-      update: { status: body.status, source: 'MANUAL' },
-    });
-
-    await recordEvent({
-      schoolId,
-      type: 'ATTENDANCE_MARKED',
-      aggregate: 'Attendance',
-      aggregateId: record.id,
-      payload: { attendanceId: record.id, studentId: body.studentId, status: body.status, previousStatus: existing?.status ?? null, previousSource: existing?.source ?? null, source: 'MANUAL' },
-      actorId: req.user!.sub,
-      actorName: req.user!.name,
+    const record = await prisma.$transaction(async (tx) => {
+      const r = await tx.attendance.upsert({
+        where: { studentId_date: { studentId: body.studentId, date } },
+        create: { schoolId, studentId: body.studentId, classId: body.classId, date, status: body.status, source: 'MANUAL', markedById: req.user!.sub },
+        update: { status: body.status, source: 'MANUAL' },
+      });
+      if ((body.status === 'PRESENT' || body.status === 'LATE') && date === todayStr()) {
+        await tx.attendanceEvent.create({
+          data: { schoolId, studentId: body.studentId, source: 'MANUAL', direction: 'ENTRY', verificationStatus: body.status === 'LATE' ? 'LATE' : 'VERIFIED', late: body.status === 'LATE', createdBy: req.user!.sub, notes: 'Manual daily mark' },
+        });
+      }
+      await recordEvent(
+        {
+          schoolId,
+          type: 'ATTENDANCE_MARKED',
+          aggregate: 'Attendance',
+          aggregateId: r.id,
+          payload: { attendanceId: r.id, studentId: body.studentId, status: body.status, previousStatus: existing?.status ?? null, previousSource: existing?.source ?? null, source: 'MANUAL' },
+          actorId: req.user!.sub,
+          actorName: req.user!.name,
+        },
+        tx,
+      );
+      return r;
     });
 
     res.json({ record });
@@ -121,19 +126,12 @@ router.post(
     await assertOwnClass(req.user!, owned.classTeacherId);
 
     const students = await prisma.student.findMany({ where: { schoolId, classId, active: true } });
-    const isLiveEntry = (status === 'PRESENT' || status === 'LATE') && date === todayStr();
-    if (isLiveEntry) {
-      for (const s of students) {
-        await processScan({ schoolId, source: 'MANUAL', studentId: s.id, direction: 'ENTRY', createdBy: req.user!.sub });
-      }
-    } else {
-      for (const s of students) {
-        await prisma.attendance.upsert({
-          where: { studentId_date: { studentId: s.id, date } },
-          create: { schoolId, studentId: s.id, classId, date, status, source: 'MANUAL', markedById: req.user!.sub },
-          update: { status, source: 'MANUAL' },
-        });
-      }
+    for (const s of students) {
+      await prisma.attendance.upsert({
+        where: { studentId_date: { studentId: s.id, date } },
+        create: { schoolId, studentId: s.id, classId, date, status, source: 'MANUAL', markedById: req.user!.sub },
+        update: { status, source: 'MANUAL' },
+      });
     }
 
     await recordEvent({

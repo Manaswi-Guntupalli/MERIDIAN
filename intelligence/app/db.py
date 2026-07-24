@@ -44,7 +44,7 @@ def load_school_frames(school_id: str) -> dict[str, pd.DataFrame]:
             ),
             "events": frame(
                 conn,
-                "SELECT studentId, readerId, source, timestamp, direction, verificationStatus, late, lateMinutes "
+                "SELECT studentId, sessionId, source, timestamp, direction, verificationStatus, faceConfidence, late, lateMinutes "
                 "FROM AttendanceEvent WHERE schoolId=?",
                 p,
             ),
@@ -99,12 +99,6 @@ def load_school_frames(school_id: str) -> dict[str, pd.DataFrame]:
                 "JOIN Document ON Document.id = ExtractedField.documentId WHERE Document.schoolId=?",
                 p,
             ),
-            "readers": frame(conn, "SELECT id, name, location, online, lastHeartbeat FROM RFIDReader WHERE schoolId=?", p),
-            "heartbeats": frame(
-                conn,
-                "SELECT ReaderHeartbeat.readerId, ReaderHeartbeat.timestamp, ReaderHeartbeat.signal "
-                "FROM ReaderHeartbeat JOIN RFIDReader ON RFIDReader.id = ReaderHeartbeat.readerId "
-                "WHERE RFIDReader.schoolId=?",
-                p,
-            ),
+            "students_face": frame(conn, "SELECT id, faceEnrolled, active FROM Student WHERE schoolId=?", p),
+            "sessions": frame(conn, "SELECT id, status, date, startTime, expiryTime, closedAt FROM AttendanceSession WHERE schoolId=?", p),
         }

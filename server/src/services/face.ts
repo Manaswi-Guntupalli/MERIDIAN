@@ -1,12 +1,19 @@
 import { prisma } from '../lib/prisma.js';
 import { fromJson } from '../lib/json.js';
+import { env } from '../config/env.js';
 
 // Presence · Face Recognition — the matching engine.
-// Embeddings are 128-D neural descriptors generated on-device. We never store
-// images. Matching is cosine nearest-neighbour over the school's enrolled
-// vectors (a linear scan here; FAISS/pgvector is the drop-in scale option).
+//
+// Embeddings are 512-D ArcFace descriptors produced by the Python face service
+// from pixels the browser sends over TLS; the image is embedded in memory and
+// discarded — only the vector is ever stored. Matching is cosine
+// nearest-neighbour over the school's enrolled vectors (a linear scan; pgvector
+// is the drop-in scale option). Vectors carry their model id so a model upgrade
+// can never silently compare across incompatible spaces.
 
-export const MATCH_THRESHOLD = 0.72; // cosine similarity for a confident match
+export const EMBED_MODEL = 'insightface-buffalo_l';
+export const EMBED_DIM = 512;
+export const MATCH_THRESHOLD = 0.42; // cosine similarity for a confident ArcFace match
 
 function cosine(a: number[], b: number[]): number {
   let dot = 0;
@@ -21,6 +28,40 @@ function cosine(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+export interface EmbedResult {
+  found: boolean;
+  embedding?: number[];
+  detScore?: number;
+  model?: string;
+}
+
+/**
+ * Turn an image (base64 JPEG/PNG) into a face embedding via the Python face
+ * service. This is the ONLY place the raw image is handled server-side; it is
+ * never persisted. Returns { found: false } when no face is in the frame, and
+ * throws only when the service itself is unreachable — the caller decides how
+ * to degrade (the engine renders an explicit "face service offline", never a
+ * fabricated match).
+ */
+export async function embedImage(imageBase64: string): Promise<EmbedResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(`${env.faceServiceUrl}/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: imageBase64 }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`face service responded ${res.status}`);
+    const data = (await res.json()) as { ok: boolean; found?: boolean; embedding?: number[]; detScore?: number; model?: string; error?: string };
+    if (!data.ok) throw new Error(data.error ?? 'face service error');
+    return { found: !!data.found, embedding: data.embedding, detScore: data.detScore, model: data.model };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface MatchResult {
   matched: boolean;
   subjectType?: 'STUDENT' | 'TEACHER';
@@ -30,12 +71,18 @@ export interface MatchResult {
   margin: number; // gap to the runner-up — a quality signal
 }
 
-// Search all enrolled embeddings for the best match to `query`.
-export async function matchFace(schoolId: string, query: number[]): Promise<MatchResult> {
-  const rows = await prisma.faceEmbedding.findMany({ where: { schoolId } });
+/** Load a school's enrolled embeddings for the current model only. */
+async function enrolledVectors(schoolId: string, subjectType?: 'STUDENT' | 'TEACHER') {
+  return prisma.faceEmbedding.findMany({
+    where: { schoolId, model: EMBED_MODEL, ...(subjectType ? { subjectType } : {}) },
+  });
+}
+
+// 1:N — "who is this face?" Search all enrolled embeddings for the best match.
+export async function matchFace(schoolId: string, query: number[], subjectType?: 'STUDENT' | 'TEACHER'): Promise<MatchResult> {
+  const rows = await enrolledVectors(schoolId, subjectType);
   if (!rows.length) return { matched: false, confidence: 0, margin: 0 };
 
-  // Best cosine similarity per enrolled subject.
   const bestBySubject = new Map<string, { sim: number; name: string; type: string; id: string }>();
   for (const r of rows) {
     const vec = fromJson<number[]>(r.vectorString, []);
@@ -48,9 +95,8 @@ export async function matchFace(schoolId: string, query: number[]): Promise<Matc
 
   const ranked = [...bestBySubject.values()].sort((a, b) => b.sim - a.sim);
   const top = ranked[0];
-  const second = ranked[1];
   if (!top) return { matched: false, confidence: 0, margin: 0 };
-
+  const second = ranked[1];
   const margin = second ? top.sim - second.sim : top.sim;
   return {
     matched: top.sim >= MATCH_THRESHOLD,
@@ -63,13 +109,10 @@ export async function matchFace(schoolId: string, query: number[]): Promise<Matc
 }
 
 /**
- * 1:1 verification — the fusion half of anti-proxy attendance. Instead of
- * asking "who is this face?" (1:N identification), this asks "is this face
- * the specific person the RFID card claims?" and returns the best cosine
- * similarity against ONLY that subject's enrolled templates. The caller
- * compares against MATCH_THRESHOLD; zero samples means "cannot verify",
- * which is different from "failed to verify" — callers must not treat an
- * un-enrolled student as a proxy suspect.
+ * 1:1 verification — the anti-proxy half. "Is this face the specific person the
+ * QR claims?" Returns the best cosine similarity against ONLY that subject's
+ * templates. `samples === 0` means "cannot verify" (un-enrolled), which callers
+ * must not treat as "failed to verify".
  */
 export async function verifyFaceAgainst(
   schoolId: string,
@@ -77,7 +120,7 @@ export async function verifyFaceAgainst(
   subjectId: string,
   query: number[],
 ): Promise<{ similarity: number; samples: number; threshold: number }> {
-  const rows = await prisma.faceEmbedding.findMany({ where: { schoolId, subjectType, subjectId } });
+  const rows = await prisma.faceEmbedding.findMany({ where: { schoolId, subjectType, subjectId, model: EMBED_MODEL } });
   let best = 0;
   let samples = 0;
   for (const r of rows) {
@@ -96,35 +139,54 @@ export interface EnrollInput {
   subjectId: string;
   name: string;
   embeddings: { vector: number[]; label?: string; quality?: number }[];
+  consentBy?: string;
 }
 
+/**
+ * Store a subject's face templates, consent-first. Creates (or refreshes) the
+ * FaceEnrollment consent record, then the embeddings linked to it. Old
+ * embeddings for the subject are cleared so a re-enroll fully replaces them.
+ */
 export async function enrollFace(input: EnrollInput) {
-  const valid = input.embeddings.filter((e) => Array.isArray(e.vector) && e.vector.length === 128);
-  if (!valid.length) throw new Error('No valid 128-D embeddings provided');
+  const valid = input.embeddings.filter((e) => Array.isArray(e.vector) && e.vector.length === EMBED_DIM);
+  if (!valid.length) throw new Error(`No valid ${EMBED_DIM}-D embeddings provided`);
 
-  await prisma.faceEmbedding.createMany({
-    data: valid.map((e) => ({
-      schoolId: input.schoolId,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-      name: input.name,
-      vectorString: JSON.stringify(e.vector),
-      label: e.label ?? 'front',
-      quality: e.quality ?? 0,
-    })),
+  const { enrollmentId, total } = await prisma.$transaction(async (tx) => {
+    // Fresh templates replace any prior ones for this subject.
+    await tx.faceEmbedding.deleteMany({ where: { schoolId: input.schoolId, subjectType: input.subjectType, subjectId: input.subjectId } });
+    const enrollment = await tx.faceEnrollment.upsert({
+      where: { subjectType_subjectId: { subjectType: input.subjectType, subjectId: input.subjectId } },
+      create: { schoolId: input.schoolId, subjectType: input.subjectType, subjectId: input.subjectId, name: input.name, model: EMBED_MODEL, consentBy: input.consentBy },
+      update: { name: input.name, model: EMBED_MODEL, consentBy: input.consentBy, consentAt: new Date() },
+    });
+    await tx.faceEmbedding.createMany({
+      data: valid.map((e) => ({
+        schoolId: input.schoolId,
+        enrollmentId: enrollment.id,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        name: input.name,
+        vectorString: JSON.stringify(e.vector),
+        model: EMBED_MODEL,
+        dim: EMBED_DIM,
+        label: e.label ?? 'front',
+        quality: e.quality ?? 0,
+      })),
+    });
+    const flag = { faceEnrolled: true, faceCount: valid.length };
+    if (input.subjectType === 'STUDENT') await tx.student.update({ where: { id: input.subjectId }, data: flag });
+    else await tx.teacher.update({ where: { id: input.subjectId }, data: flag });
+    return { enrollmentId: enrollment.id, total: valid.length };
   });
 
-  const count = await prisma.faceEmbedding.count({ where: { subjectId: input.subjectId } });
-  if (input.subjectType === 'STUDENT') {
-    await prisma.student.update({ where: { id: input.subjectId }, data: { faceEnrolled: true, faceCount: count } });
-  } else {
-    await prisma.teacher.update({ where: { id: input.subjectId }, data: { faceEnrolled: true, faceCount: count } });
-  }
-  return { stored: valid.length, total: count };
+  return { stored: valid.length, total, enrollmentId };
 }
 
 export async function clearFace(schoolId: string, subjectType: 'STUDENT' | 'TEACHER', subjectId: string) {
-  await prisma.faceEmbedding.deleteMany({ where: { schoolId, subjectType, subjectId } });
-  if (subjectType === 'STUDENT') await prisma.student.update({ where: { id: subjectId }, data: { faceEnrolled: false, faceCount: 0 } });
-  else await prisma.teacher.update({ where: { id: subjectId }, data: { faceEnrolled: false, faceCount: 0 } });
+  await prisma.$transaction(async (tx) => {
+    await tx.faceEmbedding.deleteMany({ where: { schoolId, subjectType, subjectId } });
+    await tx.faceEnrollment.deleteMany({ where: { subjectType, subjectId } });
+    if (subjectType === 'STUDENT') await tx.student.update({ where: { id: subjectId }, data: { faceEnrolled: false, faceCount: 0 } });
+    else await tx.teacher.update({ where: { id: subjectId }, data: { faceEnrolled: false, faceCount: 0 } });
+  });
 }

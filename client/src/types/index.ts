@@ -105,7 +105,7 @@ export interface RosterEntry {
   studentId: string;
   name: string;
   rollNo: number;
-  cardUid?: string | null;
+  faceEnrolled?: boolean;
   status: string;
   source?: string | null;
   attendanceId?: string | null;
@@ -357,62 +357,101 @@ export interface CopilotResult {
 }
 
 // ─────────────────────────  PRESENCE  ────────────────────────
-export type ReaderDirection = 'ENTRY' | 'EXIT' | 'BOTH';
-export type CardStatus = 'ACTIVE' | 'DISABLED' | 'LOST' | 'BROKEN' | 'REPLACED';
-export type EventSource = 'RFID' | 'MANUAL' | 'CV' | 'FUSION';
+export type AttendanceMethod = 'FACE' | 'QR' | 'MANUAL';
 export type EventDirection = 'ENTRY' | 'EXIT' | 'REENTRY' | 'UNKNOWN';
-export type VerificationStatus = 'VERIFIED' | 'DUPLICATE' | 'UNKNOWN' | 'LATE' | 'REJECTED' | 'PROXY';
+export type VerificationStatus = 'VERIFIED' | 'LATE' | 'DUPLICATE' | 'PROXY' | 'UNVERIFIED_QR' | 'REJECTED';
+export type SessionStatus = 'ACTIVE' | 'CLOSED' | 'EXPIRED';
+export type VerificationState =
+  | 'PENDING'
+  | 'QR_VERIFIED'
+  | 'FACE_VERIFIED'
+  | 'PRESENT'
+  | 'PROXY_ATTEMPT'
+  | 'UNVERIFIED_QR'
+  | 'ABSENT';
 
-export interface RFIDReaderRow {
-  id: string;
+export interface SessionStudentRow {
+  studentId: string;
   name: string;
-  location: string;
-  building: string | null;
-  online: boolean;
-  firmwareVersion: string | null;
-  lastHeartbeat: string | null;
-  direction: ReaderDirection;
-  createdAt: string;
+  rollNo: number;
+  state: VerificationState;
+  faceConfidence: number | null;
+  markedPresentAt: string | null;
+  reason: string | null;
 }
 
-export interface RFIDCardRow {
+export interface AttendanceSessionView {
   id: string;
-  uid: string;
+  status: SessionStatus;
+  className: string;
+  classId: string;
+  subject: string | null;
+  teacherName: string;
+  date: string;
+  startTime: string;
+  expiryTime: string;
+  secondsLeft: number;
+  counts: { present: number; pending: number; proxy: number; unverifiedQr: number; total: number };
+  qr: { sessionId: string; token: string } | null;
+  students: SessionStudentRow[];
+}
+
+export type ReportStatus = 'Present' | 'Absent' | 'Unverified QR' | 'Proxy Attempt';
+
+export interface SessionSummaryStudent {
+  rollNo: number;
+  name: string;
+  status: ReportStatus;
+  method: string;
+  confidence: number | null;
+  time: string | null;
+  remarks: string;
+}
+
+export interface AttendanceSessionSummary {
+  id: string;
+  status: SessionStatus;
+  schoolName: string;
+  className: string;
+  grade: number;
+  section: string;
+  subject: string | null;
+  subjectCode: string | null;
+  teacherName: string;
+  date: string;
+  startTime: string;
+  endTime: string | null;
+  durationSeconds: number | null;
+  counts: { present: number; absent: number; unverifiedQr: number; proxy: number; total: number };
+  methods: { faceOnly: number; qrAndFace: number; manual: number; avgFaceConfidence: number | null };
+  integrity: { attendanceVerified: boolean; auditLogged: boolean; eventStored: boolean; trustCoreUpdated: boolean };
+  students: SessionSummaryStudent[];
+}
+
+export interface MarkResultView {
+  state: VerificationState;
   studentId: string;
-  status: CardStatus;
-  issuedDate: string;
-  deactivatedAt: string | null;
-  replacedByCardId: string | null;
-  createdAt: string;
-  student?: { id: string; name: string; rollNo: number; classId: string | null };
+  studentName: string;
+  sessionId: string;
+  reason?: string;
+  claimedName?: string;
+  face?: { confidence: number; distance: number; threshold: number };
 }
 
 export interface AttendanceEventRow {
   id: string;
   studentId: string | null;
-  cardId: string | null;
-  readerId: string | null;
-  source: EventSource;
+  sessionId: string | null;
+  source: AttendanceMethod;
   timestamp: string;
   direction: EventDirection;
   verificationStatus: VerificationStatus;
+  faceConfidence: number | null;
   late: boolean;
   lateMinutes: number | null;
   notes: string | null;
   student?: { id: string; name: string; rollNo: number; class?: { name: string } } | null;
-  reader?: { id: string; name: string; location: string } | null;
-  card?: { uid: string } | null;
-}
-
-export interface ScanResult {
-  status: VerificationStatus;
-  eventId: string;
-  reason?: string;
-  student?: { id: string; name: string; rollNo: number };
-  direction: EventDirection;
-  late: boolean;
-  lateMinutes: number | null;
-  timestamp: string;
+  session?: { id: string; class?: { name: string } } | null;
 }
 
 export interface PresenceSettings {
@@ -429,7 +468,6 @@ export interface PresenceTodaySummary {
   late: number;
   absent: number;
   unmarked: number;
-  readersOnline: number;
-  readersOffline: number;
-  unknownCards: number;
+  activeSessions: number;
+  proxyAttempts: number;
 }

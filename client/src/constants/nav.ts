@@ -50,7 +50,7 @@ export const NAV: NavItem[] = [
   { to: '/lumen', label: 'Lumen · Docs', icon: FileScan, roles: ADMIN, group: 'Engines', engine: 'LUMEN' },
   { to: '/kairos', label: 'Kairos · Timetable', icon: CalendarClock, roles: STAFF, group: 'Engines', engine: 'KAIROS' },
   { to: '/foresight', label: 'Foresight', icon: Radar, roles: ADMIN, group: 'Engines', engine: 'FORESIGHT' },
-  { to: '/presence', label: 'Presence · RFID', icon: Nfc, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
+  { to: '/presence', label: 'Presence · Face', icon: Nfc, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
   { to: '/face-recognition', label: 'Face Recognition', icon: ScanFace, roles: STAFF, group: 'Engines', engine: 'PRESENCE' },
 
   { to: '/trust', label: 'Time Machine', icon: History, roles: ADMIN, group: 'Trust Core' },

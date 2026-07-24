@@ -23,7 +23,7 @@ const ROLE_LABEL: Record<Role, string> = {
 
 const ADMIN_GUIDE: GuideItem[] = [
   { to: '/', label: 'Dashboard', desc: 'School health, attendance and finances at a glance.' },
-  { to: '/presence', label: 'Presence', desc: 'Live gate attendance — RFID readers, cards, simulator.' },
+  { to: '/presence', label: 'Presence', desc: 'Face-recognition attendance with a session QR fallback and simulator.' },
   { to: '/students', label: 'Students', desc: 'Profiles, classes and each student’s full record.' },
   { to: '/kairos', label: 'Kairos', desc: 'Build and solve the school timetable.' },
   { to: '/fees', label: 'Fees', desc: 'Collections, dues and payment records.' },
@@ -169,9 +169,9 @@ export default function HelpWidget() {
                 <div className="mt-3 rounded-xl border border-line bg-ink-800/40 px-3.5 py-3">
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-800"><Nfc className="h-3.5 w-3.5 text-brand-500" /> About Presence</div>
                   <p className="text-[0.7rem] leading-relaxed text-slate-500">
-                    A tap at a gate flows through one pipeline: validate (reader online → card active → duplicate window → late policy) → write attendance once →
-                    update dashboards, analytics and parent notifications everywhere. Readers show <b className="text-slate-700">Offline</b> when they stop sending
-                    heartbeats — turn on the Simulator’s <b className="text-slate-700">virtual gate hardware</b> or use the power toggle in Manage → Readers.
+                    A face or QR mark flows through one engine: open a session → recognise the face (or verify the QR) → anti-proxy check → write attendance once →
+                    update dashboards, analytics and parent notifications everywhere. QR-only marks that never show a face become <b className="text-slate-700">Unverified QR</b> at session
+                    expiry — face is the primary method, QR is the fallback. Use the Simulator to exercise every scenario without a camera.
                   </p>
                 </div>
               )}

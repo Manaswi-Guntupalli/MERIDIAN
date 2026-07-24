@@ -13,7 +13,9 @@ function nextMonday(): string {
   const js = d.getDay(); // 0=Sun..6=Sat
   const delta = ((8 - js) % 7) || 7;
   d.setDate(d.getDate() + delta);
-  return d.toISOString().slice(0, 10);
+  // Build the string from LOCAL components — toISOString() is UTC and shifts
+  // the date across the midnight boundary, which can land on a weekend.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 describe('Reactive absence cascade', () => {

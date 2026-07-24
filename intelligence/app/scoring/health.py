@@ -54,13 +54,19 @@ def compute(att: dict, fin: dict, tt: dict, docs: dict, ops: dict) -> dict:
     else:
         cats["documents"] = _cat(None, "no documents processed", {})
 
-    uptime = ops.get("reader_uptime_now")
-    rejection = ops.get("rejection_rate", 0) or 0
-    cats["operations"] = _cat(
-        (uptime * (1 - min(rejection, 0.5))) * 100 if uptime is not None else None,
-        "reader uptime x (1 - scan rejection rate, capped at 50%) x 100",
-        {"reader_uptime": uptime, "rejection_rate": rejection},
-    )
+    # Attendance capture integrity — clean marks vs proxy/unverified-QR —
+    # scaled by how much of the school the primary (face) method can reach.
+    integrity = ops.get("capture_integrity")
+    coverage = ops.get("enrollment_coverage")
+    if integrity is not None:
+        cov_factor = 0.6 + 0.4 * coverage if coverage is not None else 1.0
+        cats["operations"] = _cat(
+            integrity * cov_factor * 100,
+            "capture integrity x (0.6 + 0.4 x face-enrollment coverage) x 100",
+            {"capture_integrity": integrity, "enrollment_coverage": coverage, "proxy_attempts": ops.get("proxy_attempts", 0)},
+        )
+    else:
+        cats["operations"] = _cat(None, "no attendance captured yet", {})
 
     weights = health_weights()
     total, weight_used = 0.0, 0.0

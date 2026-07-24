@@ -6,6 +6,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import type { Role } from '@/types';
 
 const Login = lazy(() => import('@/pages/Login'));
+const ScanAttendance = lazy(() => import('@/pages/ScanAttendance'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Students = lazy(() => import('@/pages/Students'));
 const StudentDetail = lazy(() => import('@/pages/StudentDetail'));
@@ -17,10 +18,11 @@ const Lumen = lazy(() => import('@/pages/Lumen'));
 const Kairos = lazy(() => import('@/pages/Kairos'));
 const Foresight = lazy(() => import('@/pages/Foresight'));
 const PresenceLayout = lazy(() => import('@/pages/presence/PresenceLayout'));
-const PresenceOverview = lazy(() => import('@/pages/presence/Overview'));
+const PresenceSessions = lazy(() => import('@/pages/presence/Sessions'));
+const AttendanceSessionLive = lazy(() => import('@/pages/presence/AttendanceSessionLive'));
+const AttendanceSummary = lazy(() => import('@/pages/presence/AttendanceSummary'));
 const PresenceActivity = lazy(() => import('@/pages/presence/Activity'));
 const PresenceAnalytics = lazy(() => import('@/pages/presence/Analytics'));
-const PresenceManage = lazy(() => import('@/pages/presence/Manage'));
 const PresenceSimulator = lazy(() => import('@/pages/presence/Simulator'));
 const FaceRecognition = lazy(() => import('@/pages/FaceRecognition'));
 const Twin = lazy(() => import('@/pages/Twin'));
@@ -79,6 +81,10 @@ export default function App() {
     <Suspense fallback={<div className="grid h-screen place-items-center"><LoadingScreen /></div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Student QR landing — a phone-camera scan of the session QR opens this.
+            Standalone (no app shell); it gates its own auth and returns here
+            after login. */}
+        <Route path="/scan" element={<ScanAttendance />} />
         <Route
           element={
             <RequireAuth>
@@ -96,17 +102,23 @@ export default function App() {
           <Route path="/lumen" element={g(ADMIN, <Lumen />)} />
           <Route path="/kairos" element={g(STAFF, <Kairos />)} />
           <Route path="/foresight" element={g(ADMIN, <Foresight />)} />
+          {/* The dedicated, projector-ready session screen lives OUTSIDE the
+              Presence tab layout so it can go fullscreen cleanly. */}
+          <Route path="/presence/live/:sessionId" element={g(STAFF, <AttendanceSessionLive />)} />
+          {/* The post-session summary + PDF/Excel export, shown after "End attendance". */}
+          <Route path="/presence/summary/:sessionId" element={g(STAFF, <AttendanceSummary />)} />
           <Route path="/presence" element={g(STAFF, <PresenceLayout />)}>
-            <Route index element={<PresenceOverview />} />
+            <Route index element={<PresenceSessions />} />
             <Route path="activity" element={<PresenceActivity />} />
             <Route path="analytics" element={<PresenceAnalytics />} />
-            <Route path="manage" element={g(ADMIN, <PresenceManage />)} />
             <Route path="simulator" element={g(ADMIN, <PresenceSimulator />)} />
+            {/* Legacy Presence URLs forward to the consolidated tabs. */}
             <Route path="attendance" element={<LegacyRedirect to="/presence/activity" />} />
-            <Route path="history" element={<LegacyRedirect to="/presence/activity" extra={{ view: 'history' }} />} />
-            <Route path="readers" element={<LegacyRedirect to="/presence/manage" extra={{ section: 'readers' }} />} />
-            <Route path="cards" element={<LegacyRedirect to="/presence/manage" extra={{ section: 'cards' }} />} />
-            <Route path="settings" element={<LegacyRedirect to="/presence/manage" extra={{ section: 'policy' }} />} />
+            <Route path="history" element={<LegacyRedirect to="/presence/activity" />} />
+            <Route path="readers" element={<LegacyRedirect to="/presence" />} />
+            <Route path="cards" element={<LegacyRedirect to="/presence" />} />
+            <Route path="manage" element={<LegacyRedirect to="/presence" />} />
+            <Route path="settings" element={<LegacyRedirect to="/presence" />} />
           </Route>
           <Route path="/face-recognition" element={g(STAFF, <FaceRecognition />)} />
           <Route path="/twin" element={g(STAFF, <Twin />)} />

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/store/auth';
 import { apiError } from '@/lib/api';
@@ -18,6 +18,12 @@ const DEMO = [
 export default function Login() {
   const { user, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Where to go after signing in: back to wherever RequireAuth (or the /scan
+  // page) redirected from, else the dashboard. Lets a scanned attendance link
+  // survive the login round-trip.
+  const from = (location.state as { from?: { pathname: string; search?: string } } | null)?.from;
+  const redirectTo = from ? `${from.pathname}${from.search ?? ''}` : '/';
   const [email, setEmail] = useState('principal@meridian.school');
   const [password, setPassword] = useState('meridian123');
   const [rememberMe, setRememberMe] = useState(false);
@@ -25,7 +31,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={redirectTo} replace />;
 
   const submit = async (e?: React.FormEvent, overrideEmail?: string) => {
     e?.preventDefault();
@@ -36,7 +42,7 @@ export default function Login() {
       // was actually typed. (An earlier version hardcoded the demo password
       // for BOTH paths — real credentials were silently ignored.)
       await login(overrideEmail ?? email, overrideEmail ? 'meridian123' : password, rememberMe);
-      navigate('/');
+      navigate(redirectTo);
     } catch (err) {
       setError(apiError(err, 'Login failed'));
     } finally {

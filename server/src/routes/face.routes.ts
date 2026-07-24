@@ -6,9 +6,7 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { validateBody } from '../utils/validate.js';
 import { recordEvent } from '../services/eventStore.js';
 import { logAI } from '../services/trustLedger.js';
-import { emitToSchool } from '../lib/socket.js';
-import { matchFace, enrollFace, clearFace } from '../services/face.js';
-import { processScan } from '../services/presence/engine.js';
+import { enrollFace, clearFace, embedImage, EMBED_MODEL } from '../services/face.js';
 import { STAFF, STAFF_ADMIN } from '../utils/constants.js';
 
 const router = Router();
@@ -17,13 +15,14 @@ router.use(authorize(...STAFF));
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-// ── Enroll a student/teacher's captured embeddings ──
+// ── Enroll a student/teacher, consent-first ──
+// The browser sends IMAGES (2-3 captured frames); the server embeds them via
+// the Python face service and stores ONLY the vectors. No image is persisted.
 const enrollSchema = z.object({
   subjectType: z.enum(['STUDENT', 'TEACHER']),
   subjectId: z.string(),
-  embeddings: z
-    .array(z.object({ vector: z.array(z.number()).length(128), label: z.string().optional(), quality: z.number().optional() }))
-    .min(1),
+  images: z.array(z.string().min(32)).min(1).max(6),
+  consent: z.literal(true, { errorMap: () => ({ message: 'Explicit consent is required to enroll a face.' }) }),
 });
 router.post(
   '/enroll',
@@ -39,13 +38,26 @@ router.post(
     if (!subject) throw notFound('Subject not found');
     const name = body.subjectType === 'STUDENT' ? (subject as any).name : (subject as any).user.name;
 
-    const result = await enrollFace({ schoolId, subjectType: body.subjectType, subjectId: body.subjectId, name, embeddings: body.embeddings });
+    // Embed each frame server-side; keep only frames that actually held a face.
+    const embeddings: { vector: number[]; label: string; quality: number }[] = [];
+    for (const image of body.images) {
+      let embedded;
+      try {
+        embedded = await embedImage(image);
+      } catch (e) {
+        throw badRequest(`Face service is unreachable — start it with "npm run faceservice". (${e instanceof Error ? e.message : 'error'})`);
+      }
+      if (embedded.found && embedded.embedding) embeddings.push({ vector: embedded.embedding, label: 'front', quality: embedded.detScore ?? 0 });
+    }
+    if (!embeddings.length) throw badRequest('No face was detected in any of the captured frames. Move into good light and try again.');
+
+    const result = await enrollFace({ schoolId, subjectType: body.subjectType, subjectId: body.subjectId, name, embeddings, consentBy: req.user!.sub });
 
     await logAI({
       schoolId,
       engine: 'PRESENCE',
       action: 'Face enrollment',
-      reason: `${result.stored} on-device 128-D embeddings stored — no image kept`,
+      reason: `${result.stored} ${EMBED_MODEL} embeddings stored from ${body.images.length} frame(s) — images processed in memory, never kept`,
       confidence: 0.98,
       input: { subjectType: body.subjectType, name },
       output: { total: result.total },
@@ -56,78 +68,11 @@ router.post(
       type: 'FACE_ENROLLED',
       aggregate: body.subjectType,
       aggregateId: body.subjectId,
-      // subjectType/Id in the payload so the reverser can truly erase the
-      // biometric templates on undo (also the parent opt-out path).
       payload: { name, embeddings: result.total, subjectType: body.subjectType, subjectId: body.subjectId },
       actorId: req.user!.sub,
       actorName: req.user!.name,
     });
     res.status(201).json({ ...result, name });
-  }),
-);
-
-// ── Recognize a single query embedding (no attendance side-effect) ──
-const recognizeSchema = z.object({ vector: z.array(z.number()).length(128) });
-router.post(
-  '/recognize',
-  validateBody(recognizeSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const match = await matchFace(schoolId, (req.body as any).vector);
-    res.json(match);
-  }),
-);
-
-// ── Recognize + mark attendance (the live kiosk) ──
-const attendanceSchema = z.object({
-  vector: z.array(z.number()).length(128),
-  liveness: z.boolean().default(true),
-  cameraId: z.string().default('kiosk-1'),
-});
-router.post(
-  '/attendance',
-  validateBody(attendanceSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const body = req.body as z.infer<typeof attendanceSchema>;
-
-    const match = await matchFace(schoolId, body.vector);
-
-    // Liveness gate — reject presentation attacks (photos/video).
-    if (!body.liveness) {
-      await prisma.faceEvent.create({ data: { schoolId, kind: 'SPOOF', confidence: match.confidence, cameraId: body.cameraId } });
-      return res.json({ status: 'SPOOF', confidence: match.confidence });
-    }
-
-    if (!match.matched || !match.subjectId) {
-      await prisma.faceEvent.create({ data: { schoolId, kind: 'UNKNOWN', confidence: match.confidence, cameraId: body.cameraId } });
-      emitToSchool(schoolId, 'face:unknown', { confidence: match.confidence });
-      return res.json({ status: 'UNKNOWN', confidence: match.confidence });
-    }
-
-    // Teachers: recognise but don't create a student attendance record.
-    if (match.subjectType === 'TEACHER') {
-      return res.json({ status: 'RECOGNIZED', subjectType: 'TEACHER', name: match.name, confidence: match.confidence });
-    }
-
-    const student = await prisma.student.findFirst({ where: { id: match.subjectId, schoolId } });
-    if (!student || !student.classId) throw badRequest('Recognised student has no class assigned');
-
-    // Face recognition is just another source into the one Presence
-    // pipeline — engine.processScan() handles duplicate/late/direction
-    // policy, the Attendance upsert, the Trust Ledger entry and parent
-    // notification exactly as it would for an RFID tap.
-    const result = await processScan({ schoolId, source: 'CV', studentId: student.id, confidence: match.confidence });
-
-    if (result.status === 'DUPLICATE') {
-      return res.json({ status: 'ALREADY', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: result.timestamp });
-    }
-    if (result.status === 'REJECTED') {
-      throw badRequest(result.reason ?? 'Attendance could not be recorded');
-    }
-
-    emitToSchool(schoolId, 'face:attendance', { name: student.name, rollNo: student.rollNo, confidence: match.confidence });
-    res.json({ status: 'MARKED', name: student.name, rollNo: student.rollNo, confidence: match.confidence, at: result.timestamp, late: result.late });
   }),
 );
 
@@ -147,47 +92,19 @@ router.get(
   }),
 );
 
-/**
- * Batch recognition for the live kiosk.
- *
- * SECURITY: we deliberately do NOT ship the enrolled face gallery to the
- * browser. Children's biometric templates never leave the server; the kiosk
- * sends the descriptors it computed from its own camera frame and receives
- * only names + confidences back. Matching stays server-side and auditable.
- */
-const batchSchema = z.object({ vectors: z.array(z.array(z.number()).length(128)).max(12) });
-router.post(
-  '/recognize-batch',
-  validateBody(batchSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { vectors } = req.body as z.infer<typeof batchSchema>;
-    const results = await Promise.all(vectors.map((v) => matchFace(schoolId, v)));
-    res.json({
-      results: results.map((m) => ({
-        matched: m.matched,
-        name: m.matched ? m.name : null,
-        subjectId: m.matched ? m.subjectId : null,
-        subjectType: m.matched ? m.subjectType : null,
-        confidence: m.confidence,
-      })),
-    });
-  }),
-);
-
-// ── FR dashboard status ──
+// ── Face dashboard status ──
 router.get(
   '/status',
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
     const date = todayStr();
-    const [totalStudents, enrolledStudents, totalTeachers, enrolledTeachers, embeddings, cvToday, faceEventsToday] = await Promise.all([
+    const [totalStudents, enrolledStudents, totalTeachers, enrolledTeachers, embeddings, faceToday, faceEventsToday] = await Promise.all([
       prisma.student.count({ where: { schoolId } }),
       prisma.student.count({ where: { schoolId, faceEnrolled: true } }),
       prisma.teacher.count({ where: { schoolId } }),
       prisma.teacher.count({ where: { schoolId, faceEnrolled: true } }),
       prisma.faceEmbedding.count({ where: { schoolId } }),
-      prisma.attendance.count({ where: { schoolId, date, source: 'CV' } }),
+      prisma.attendance.count({ where: { schoolId, date, source: 'FACE' } }),
       prisma.faceEvent.findMany({ where: { schoolId, createdAt: { gte: new Date(date + 'T00:00:00') } } }),
     ]);
     res.json({
@@ -196,10 +113,11 @@ router.get(
       totalTeachers,
       enrolledTeachers,
       embeddings,
+      model: EMBED_MODEL,
       coverage: totalStudents ? Math.round((enrolledStudents / totalStudents) * 100) : 0,
-      recognizedToday: cvToday,
+      recognizedToday: faceToday,
       unknownToday: faceEventsToday.filter((e) => e.kind === 'UNKNOWN').length,
-      spoofToday: faceEventsToday.filter((e) => e.kind === 'SPOOF').length,
+      proxyToday: faceEventsToday.filter((e) => e.kind === 'PROXY').length,
     });
   }),
 );

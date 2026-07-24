@@ -28,17 +28,14 @@ export function useRealtime() {
       'documents', 'lumen-stats',
     ];
     const onEvent = () => REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-    const PRESENCE_REACTIVE = ['presence-events', 'presence-analytics', 'attendance', 'twin', 'presence-readers'];
-    const onPresenceEvent = (e: { status: string; student?: { name: string }; direction: string; reason?: string }) => {
-      if (e.status === 'VERIFIED' || e.status === 'LATE') {
-        const verb = e.direction === 'EXIT' ? 'exited' : 'entered';
-        pushToast({ title: e.status === 'LATE' ? 'Late arrival' : 'Presence ✓', body: `${e.student?.name ?? 'Student'} ${verb}${e.status === 'LATE' ? ' (late)' : ''}`, severity: e.status === 'LATE' ? 'WARNING' : 'SUCCESS' });
-      } else if (e.status === 'UNKNOWN') {
-        pushToast({ title: 'Unknown card scanned', body: e.reason ?? 'Needs review', severity: 'WARNING' });
-      }
+    // Attendance sessions: a student going PRESENT (or a blocked proxy) moves
+    // the live grid and every derived attendance view.
+    const PRESENCE_REACTIVE = ['attendance-session', 'presence-events', 'presence-analytics', 'attendance', 'twin', 'face'];
+    const onAttendanceVerification = (e: { state?: string; reason?: string }) => {
+      if (e.state === 'PROXY_ATTEMPT') pushToast({ title: 'Proxy attendance blocked', body: e.reason ?? 'Face did not match the QR claim', severity: 'CRITICAL' });
       PRESENCE_REACTIVE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     };
-    const onReaderStatus = () => qc.invalidateQueries({ queryKey: ['presence-readers'] });
+    const onAttendanceSession = () => qc.invalidateQueries({ queryKey: ['attendance-session'] });
     const onEmergency = (e: { kind: string }) => {
       pushToast({ title: `🚨 ${e.kind} EMERGENCY`, body: 'Emergency protocol activated', severity: 'CRITICAL' });
       qc.invalidateQueries({ queryKey: ['emergency'] });
@@ -67,8 +64,8 @@ export function useRealtime() {
 
     socket.on('notification:new', onNotification);
     socket.on('event:new', onEvent);
-    socket.on('presence:event', onPresenceEvent);
-    socket.on('presence:reader-status', onReaderStatus);
+    socket.on('attendance:verification', onAttendanceVerification);
+    socket.on('attendance:session', onAttendanceSession);
     socket.on('emergency:trigger', onEmergency);
     socket.on('emergency:resolve', onEmergencyResolve);
     socket.on('emergency:ack', onEmergencyAck);
@@ -78,8 +75,8 @@ export function useRealtime() {
     return () => {
       socket.off('notification:new', onNotification);
       socket.off('event:new', onEvent);
-      socket.off('presence:event', onPresenceEvent);
-      socket.off('presence:reader-status', onReaderStatus);
+      socket.off('attendance:verification', onAttendanceVerification);
+      socket.off('attendance:session', onAttendanceSession);
       socket.off('emergency:trigger', onEmergency);
       socket.off('emergency:resolve', onEmergencyResolve);
       socket.off('emergency:ack', onEmergencyAck);

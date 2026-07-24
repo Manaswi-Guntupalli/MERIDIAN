@@ -18,9 +18,9 @@ export default function PresenceAnalytics() {
     queryKey: ['presence-analytics', 'peak-entry-time'],
     queryFn: async () => (await api.get('/presence/analytics/peak-entry-time')).data as { histogram: { hour: number; count: number }[]; peakHour: number },
   });
-  const readerUsage = useQuery({
-    queryKey: ['presence-analytics', 'reader-usage'],
-    queryFn: async () => (await api.get('/presence/analytics/reader-usage')).data.readers as { readerId: string; name: string; total: number; verified: number; duplicate: number; unknown: number; rejected: number }[],
+  const methods = useQuery({
+    queryKey: ['presence-analytics', 'method-breakdown'],
+    queryFn: async () => (await api.get('/presence/analytics/method-breakdown')).data as { face: number; qr: number; manual: number; proxyAttempts: number; unverifiedQr: number },
   });
   const lateStudents = useQuery({
     queryKey: ['presence-analytics', 'late-students'],
@@ -91,24 +91,30 @@ export default function PresenceAnalytics() {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-bold text-slate-900">Reader usage · gate congestion</h2>
-          <div className="h-48">
-            {readerUsage.isLoading ? (
-              <LoadingScreen />
-            ) : readerUsage.data?.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={readerUsage.data} layout="vertical" margin={{ left: 8 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={CHART.grid} horizontal={false} />
-                  <XAxis type="number" tick={{ fill: CHART.axis, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="name" tick={{ fill: CHART.axis, fontSize: 11 }} width={110} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={CHART.tooltip} cursor={{ fill: T.well }} />
-                  <Bar dataKey="total" fill={T.amber} radius={[0, 4, 4, 0]} maxBarSize={16} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState title="No reader activity yet" />
-            )}
-          </div>
+          <h2 className="mb-3 font-bold text-slate-900">Capture method · integrity</h2>
+          {methods.isLoading ? (
+            <LoadingScreen />
+          ) : methods.data ? (
+            <div className="space-y-3">
+              <div className="h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={[{ name: 'Face', v: methods.data.face }, { name: 'QR', v: methods.data.qr }, { name: 'Manual', v: methods.data.manual }]} layout="vertical" margin={{ left: 8 }}>
+                    <CartesianGrid strokeDasharray="2 4" stroke={CHART.grid} horizontal={false} />
+                    <XAxis type="number" tick={{ fill: CHART.axis, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fill: CHART.axis, fontSize: 11 }} width={60} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={CHART.tooltip} cursor={{ fill: T.well }} />
+                    <Bar dataKey="v" fill={T.brand} radius={[0, 4, 4, 0]} maxBarSize={18} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex gap-2">
+                <Badge severity={methods.data.proxyAttempts > 0 ? 'CRITICAL' : 'SUCCESS'}>{methods.data.proxyAttempts} proxy blocked</Badge>
+                <Badge severity={methods.data.unverifiedQr > 0 ? 'WARNING' : 'INFO'}>{methods.data.unverifiedQr} unverified QR</Badge>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No attendance captured yet" />
+          )}
         </Card>
       </div>
 

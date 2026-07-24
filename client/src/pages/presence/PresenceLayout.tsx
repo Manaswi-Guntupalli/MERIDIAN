@@ -6,10 +6,9 @@ import { useSchoolStatus } from '@/hooks/useSchoolStatus';
 import PageHeader from '@/components/PageHeader';
 
 const TABS = [
-  { to: '/presence', label: 'Overview', end: true, admin: false },
+  { to: '/presence', label: 'Sessions', end: true, admin: false },
   { to: '/presence/activity', label: 'Activity', end: false, admin: false },
   { to: '/presence/analytics', label: 'Analytics', end: false, admin: false },
-  { to: '/presence/manage', label: 'Manage', end: false, admin: true },
   { to: '/presence/simulator', label: 'Simulator', end: false, admin: true },
 ];
 
@@ -26,18 +25,18 @@ export default function PresenceLayout() {
       <PageHeader
         overline="Engine 05 · Presence"
         title="Presence"
-        subtitle="Event-driven attendance — RFID, manual and face recognition all flow through one pipeline, the single source of truth for the rest of Meridian."
+        subtitle="Face-recognition attendance with a session QR fallback. Every mark flows through one engine — explainable, auditable and reversible like the rest of Meridian."
       />
 
       {/* Live attendance is time-bound — when school is out of session, say so
-          plainly. Nothing is disabled: readers, history and analytics all stay
-          available (and the Simulator still works for demos). */}
+          plainly. Nothing is disabled: history and analytics stay available,
+          and the Simulator still works for demos. */}
       {!school.inSession && school.phase !== 'LOADING' && (
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-line bg-ink-800/40 px-4 py-3">
           <Moon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
           <p className="text-xs leading-relaxed text-slate-500">
             <b className="text-slate-700">School is out of session ({school.label.toLowerCase()}).</b> Live attendance capture is idle — {school.detail.toLowerCase()}.
-            Readers stay online, and history &amp; analytics remain fully available. The Simulator still runs for demos and testing.
+            History &amp; analytics remain fully available, and the Simulator still runs for demos and testing.
           </p>
         </div>
       )}

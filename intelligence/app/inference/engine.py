@@ -266,42 +266,36 @@ def run(school_id: str) -> dict:
                  "features": {"overloaded": staff["overloaded"]}, "dataSources": ["Teacher"]},
             ))
 
-    # ── Operations ──────────────────────────────────────────────────────
-    if ops["readers_total"] > 0:
-        offline = ops["readers_total"] - ops["readers_online"]
-        if offline > 0:
-            conf = observed_fact(ops["readers_total"], "reader heartbeat states")
+    # ── Operations: attendance capture integrity ────────────────────────
+    if ops.get("events_total", 0) > 0:
+        proxy = ops.get("proxy_attempts", 0)
+        if proxy > 0:
+            conf = observed_fact(ops["events_total"], "attendance event log")
             insights.append(_insight(
-                "ops-readers", "operations", "WARNING",
-                f"{offline} RFID reader(s) offline",
-                [{"label": "Online", "value": f"{ops['readers_online']}/{ops['readers_total']}"},
-                 {"label": "Heartbeats last 24h", "value": ops["heartbeats_24h"]}],
-                conf, {"count": offline, "entities": []},
-                "No heartbeat within the configured threshold — scans at these gates are being rejected.",
-                "Gate attendance capture is degraded until readers reconnect.",
-                {"model": "Heartbeat threshold sweep (materialized online flag)", "window": "last 24h",
-                 "features": ops, "dataSources": ["RFIDReader", "ReaderHeartbeat"]},
+                "ops-proxy", "operations", "WARNING",
+                f"{proxy} proxy attendance attempt(s) blocked",
+                [{"label": "Blocked", "value": proxy},
+                 {"label": "Capture integrity", "value": f"{(ops.get('capture_integrity') or 0)*100:.0f}%"},
+                 {"label": "Face share", "value": f"{(ops.get('face_share') or 0)*100:.0f}%"}],
+                conf, {"count": proxy, "entities": []},
+                "A QR identity claim did not match the live face — the mark was withheld and admins alerted.",
+                "None to attendance data — the proxy was blocked before it was recorded.",
+                {"model": "1:1 face verification vs the QR-claimed student", "window": "full event log",
+                 "features": ops, "dataSources": ["AttendanceEvent", "FaceEmbedding"]},
             ))
-            candidates.append({
-                "id": "act-readers", "title": f"Bring {offline} reader(s) back online",
-                "detail": "Check power/network, or enable the Simulator's virtual hardware for demos",
-                "severity": "WARNING", "confidence": conf.value, "impact": offline / ops["readers_total"],
-                "affected": population, "risk": 0.6, "effort_key": "fix_readers",
-                "action_to": "/presence/manage?section=readers", "action_label": "Open readers", "evidence_ref": "ops-readers",
-            })
-        elif ops.get("unknown_cards", 0) == 0:
-            conf = observed_fact(ops.get("events_total", 0), "presence scan log")
+        else:
+            conf = observed_fact(ops.get("events_total", 0), "attendance event log")
             insights.append(_insight(
                 "ops-healthy", "operations", "SUCCESS",
-                f"Presence healthy — {ops['readers_online']}/{ops['readers_total']} readers online",
-                [{"label": "Scans logged", "value": ops.get("events_total", 0)},
-                 {"label": "Rejection rate", "value": f"{(ops.get('rejection_rate') or 0)*100:.1f}%"},
-                 {"label": "RFID share of events", "value": f"{(ops.get('rfid_share') or 0)*100:.0f}%"}],
-                conf, {"count": ops["readers_total"], "entities": []},
-                "All readers heartbeating; every scan in the window passed through the verification pipeline.",
+                f"Attendance capture clean — {(ops.get('capture_integrity') or 0)*100:.0f}% integrity",
+                [{"label": "Marks logged", "value": ops.get("events_total", 0)},
+                 {"label": "Face / QR / manual", "value": f"{(ops.get('face_share') or 0)*100:.0f}/{(ops.get('qr_share') or 0)*100:.0f}/{(ops.get('manual_share') or 0)*100:.0f}%"},
+                 {"label": "Enrollment coverage", "value": f"{(ops.get('enrollment_coverage') or 0)*100:.0f}%"}],
+                conf, {"count": ops.get("events_total", 0), "entities": []},
+                "No proxy attempts and no stranded QR-only marks in the window.",
                 "None — operating normally.",
-                {"model": "Direct scan-log statistics", "window": "full event log",
-                 "features": ops, "dataSources": ["AttendanceEvent", "RFIDReader"]},
+                {"model": "Direct attendance-event statistics", "window": "full event log",
+                 "features": ops, "dataSources": ["AttendanceEvent"]},
             ))
 
     # ── Early warning: at-risk students ─────────────────────────────────

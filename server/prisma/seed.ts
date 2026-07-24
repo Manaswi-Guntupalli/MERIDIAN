@@ -44,12 +44,11 @@ async function main() {
   console.log('🌱 Seeding Meridian…');
   // Clean slate
   await prisma.$transaction([
-    prisma.readerHeartbeat.deleteMany(),
     prisma.attendanceEvent.deleteMany(),
-    prisma.rFIDCard.updateMany({ data: { replacedByCardId: null } }), // clear self-refs before bulk delete
-    prisma.rFIDCard.deleteMany(),
-    prisma.rFIDReader.deleteMany(),
+    prisma.attendanceVerification.deleteMany(),
+    prisma.attendanceSession.deleteMany(),
     prisma.faceEmbedding.deleteMany(),
+    prisma.faceEnrollment.deleteMany(),
     prisma.faceEvent.deleteMany(),
     prisma.payment.deleteMany(),
     prisma.fee.deleteMany(),
@@ -266,32 +265,13 @@ async function main() {
     });
   }
 
-  // ── Presence: RFID readers (gates) — a real device would authenticate
-  //    with the plaintext key; the seed just hashes a memorable demo key
-  //    so the Simulator/hardware-adapter story is testable out of the box. ──
-  const readerDefs = [
-    { name: 'Main Gate Reader', location: 'Main Gate', building: 'Admin & Hall', direction: 'BOTH', key: 'demo-reader-key-main-gate' },
-    { name: 'Block A Reader', location: 'Block A Entrance', building: 'Block A', direction: 'ENTRY', key: 'demo-reader-key-block-a' },
-    { name: 'Sports Gate Reader', location: 'Sports Ground Exit', building: 'Admin & Hall', direction: 'EXIT', key: 'demo-reader-key-sports-gate' },
-  ];
-  const readers = [];
-  for (const r of readerDefs) {
-    const apiKeyHash = await bcrypt.hash(r.key, 10);
-    const reader = await prisma.rFIDReader.create({
-      data: { schoolId, name: r.name, location: r.location, building: r.building, direction: r.direction, apiKeyHash, online: true, lastHeartbeat: new Date(), firmwareVersion: '1.4.2' },
-    });
-    await prisma.readerHeartbeat.create({ data: { readerId: reader.id, signal: 0.9, firmwareVersion: '1.4.2' } });
-    readers.push(reader);
-  }
-
   // ── Presence: default policy settings (explicit rows so the Settings
   //    page shows real persisted values, not just in-code defaults) ──
   await prisma.setting.createMany({
     data: [
       { schoolId, key: 'presence.schoolStartTime', valueString: '08:00' },
       { schoolId, key: 'presence.lateGraceMinutes', valueString: '5' },
-      { schoolId, key: 'presence.duplicateWindowSeconds', valueString: '120' },
-      { schoolId, key: 'presence.heartbeatOfflineThresholdSeconds', valueString: '90' },
+      { schoolId, key: 'presence.sessionDurationMinutes', valueString: '5' },
     ],
   });
 
@@ -338,9 +318,6 @@ async function main() {
           address: `${10 + (rollGlobal % 80)} ${rand(LOCALITIES, rollGlobal)}, Pune`,
           pincode: `4110${String(rollGlobal % 60 + 1).padStart(2, '0')}`,
         },
-      });
-      await prisma.rFIDCard.create({
-        data: { schoolId, studentId: student.id, uid: `RFID-${String(rollGlobal).padStart(5, '0')}`, status: 'ACTIVE' },
       });
       students.push(student);
 
@@ -470,7 +447,6 @@ async function main() {
     schoolDayList.push({ date, dow, idx: schoolDayList.length });
   }
   const totalSchoolDays = schoolDayList.length;
-  const entryReaders = readers.filter((r) => r.direction !== 'EXIT');
 
   for (const { date, dow, idx } of schoolDayList) {
     const daysFromToday = Math.round((Date.now() - new Date(date).getTime()) / 86400000);
@@ -479,7 +455,7 @@ async function main() {
     const attRows: any[] = [];
     const evtRows: any[] = [];
     // Backfill AttendanceEvents only for the last 5 school days — enough for
-    // the live feed / peak-time / reader analytics without a huge event log.
+    // the live feed / peak-time / method analytics without a huge event log.
     const backfillEvents = daysFromToday <= 7;
 
     for (let i = 0; i < students.length; i++) {
@@ -495,27 +471,27 @@ async function main() {
       else if (OFTEN_LATE.has(i)) status = rnd() < 0.4 ? 'LATE' : 'PRESENT';
       else status = rnd() < 0.05 ? 'LATE' : 'PRESENT';
 
-      const source = rnd() < 0.55 ? 'RFID' : 'MANUAL';
+      // Face is the primary capture method now; QR and manual fill the rest.
+      const source = rnd() < 0.7 ? 'FACE' : rnd() < 0.6 ? 'QR' : 'MANUAL';
       attRows.push({ schoolId, studentId: s.id, classId: s.classId!, date, status, source });
 
       if (backfillEvents && status !== 'ABSENT' && status !== 'LEAVE') {
         const late = status === 'LATE';
         // Arrivals 07:42–08:04; late arrivals 08:10–08:40. lateMinutes is
         // COMPUTED from the timestamp vs start+grace (08:05) — never invented.
-        const minutesAfter0742 = late ? 28 + Math.floor(rnd() * 31) : Math.floor(rnd() * 23); // on-time 07:42–08:04, late 08:10–08:40
+        const minutesAfter0742 = late ? 28 + Math.floor(rnd() * 31) : Math.floor(rnd() * 23);
         const totalMin = 7 * 60 + 42 + minutesAfter0742;
         const timestamp = new Date(`${date}T${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}:${String(Math.floor(rnd() * 60)).padStart(2, '0')}`);
         const graceEnd = new Date(`${date}T08:05:00`);
         const lateMinutes = late ? Math.max(1, Math.ceil((timestamp.getTime() - graceEnd.getTime()) / 60000)) : null;
-        const reader = source === 'RFID' ? rand(entryReaders, s.rollNo + minutesAfter0742) : null;
         evtRows.push({
           schoolId,
           studentId: s.id,
-          readerId: reader?.id ?? null,
           source,
           timestamp,
           direction: 'ENTRY',
           verificationStatus: late ? 'LATE' : 'VERIFIED',
+          faceConfidence: source === 'FACE' ? Math.round((0.55 + rnd() * 0.35) * 1000) / 1000 : null,
           late,
           lateMinutes,
         });
@@ -727,7 +703,7 @@ async function main() {
   console.log('     student@meridian.school     (STUDENT)');
   console.log('     parent@meridian.school      (PARENT)');
   console.log(`   Students: ${students.length}, Teachers: ${teachers.length}, Classes: ${classes.length}`);
-  console.log(`   Presence: ${readers.length} readers, ${students.length} RFID cards issued`);
+  console.log(`   Presence: face-recognition + QR sessions (${students.length} students on the register)`);
   console.log(`   History: ${totalSchoolDays} school days of attendance · ${absenceCount} staff absences with ${coverCount} covers`);
   console.log(`   Fees: ${feeCount} fee heads with ${paymentRows.length} payment records (ledger arithmetic exact)`);
   console.log('   Deterministic: re-running this seed reproduces the identical school.');

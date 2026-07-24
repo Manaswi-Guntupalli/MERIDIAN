@@ -18,6 +18,6 @@ router.get('/trend/monthly', asyncHandler(async (req, res) => res.json({ series:
 router.get('/late-students', asyncHandler(async (req, res) => res.json({ students: await analytics.lateStudents(req.user!.schoolId, days(req, 14)) })));
 router.get('/frequent-absences', asyncHandler(async (req, res) => res.json({ students: await analytics.frequentAbsences(req.user!.schoolId, days(req, 30)) })));
 router.get('/peak-entry-time', asyncHandler(async (req, res) => res.json(await analytics.peakEntryTime(req.user!.schoolId, days(req, 14)))));
-router.get('/reader-usage', asyncHandler(async (req, res) => res.json({ readers: await analytics.readerUsage(req.user!.schoolId, days(req, 14)) })));
+router.get('/method-breakdown', asyncHandler(async (req, res) => res.json(await analytics.methodBreakdown(req.user!.schoolId, days(req, 14)))));
 
 export default router;

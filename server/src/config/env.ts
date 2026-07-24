@@ -41,4 +41,8 @@ export const env = {
   // Python intelligence engine (FastAPI). Node only orchestrates — all
   // analytics, confidence and ranking are computed there.
   intelligenceUrl: process.env.INTELLIGENCE_URL ?? 'http://localhost:8010',
+  // Python face service (FastAPI). Turns pixels into a 512-D embedding; Node
+  // keeps all matching and DB access. Down → the kiosk shows an explicit
+  // offline state, never a fabricated match.
+  faceServiceUrl: process.env.FACE_SERVICE_URL ?? 'http://localhost:8020',
 };

@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
@@ -6,182 +5,152 @@ import { authenticate, authorize } from '../../middleware/auth.js';
 import { validateBody } from '../../utils/validate.js';
 import { asyncHandler, badRequest } from '../../lib/errors.js';
 import { STAFF_ADMIN } from '../../utils/constants.js';
-import { processScan } from '../../services/presence/engine.js';
-import * as readers from '../../services/presence/readers.js';
-import * as cards from '../../services/presence/cards.js';
-import { getPresenceSettings, minutesOfDay } from '../../services/presence/settings.js';
+import { startSession, closeSession, expireIfDue } from '../../services/presence/session.js';
+import { markFace, markQr } from '../../services/presence/engine.js';
+import { enrollFace, EMBED_DIM } from '../../services/face.js';
 
-// Every scenario below funnels through the exact same processScan() a real
-// reader hits — there is no parallel "fake" attendance path. The only thing
-// unique to this router is that it's allowed to force reader state and
-// (only here) override the event timestamp, so demo scenarios like "late
-// arrival" are reproducible without waiting for the clock.
+// The Attendance Simulator drives the REAL engine — markFace / markQr, the
+// verification state machine, proxy detection, events, audit and Trust Ledger.
+// The ONLY simulated element is the camera pixel: without a webcam, a "capture"
+// is a stored synthetic template plus small gaussian noise (what a genuine
+// re-capture of the same face produces). Every scenario is honest about that.
 const router = Router();
 router.use(authenticate);
 router.use(authorize(...STAFF_ADMIN));
 
-// Virtual gate hardware: sends the same periodic heartbeat a physical
-// reader would, for every reader in the school. Goes through the real
-// recordHeartbeat path (ReaderHeartbeat rows, lastHeartbeat, online flip +
-// socket emit) so demo readers stay online exactly the way hardware does.
-router.post(
-  '/go-online',
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const all = await prisma.rFIDReader.findMany({ where: { schoolId }, select: { id: true } });
-    for (const r of all) {
-      await readers.recordHeartbeat(r.id, { signal: Math.round((0.82 + Math.random() * 0.17) * 100) / 100 });
-    }
-    res.json({ ok: true, readers: all.length });
-  }),
-);
-
-async function randomActiveCard(schoolId: string) {
-  const active = await prisma.rFIDCard.findMany({ where: { schoolId, status: 'ACTIVE', student: { active: true } }, select: { uid: true, studentId: true } });
-  if (!active.length) throw badRequest('No active cards to simulate with — issue a card first');
-  return active[Math.floor(Math.random() * active.length)];
+/** A deterministic-ish synthetic unit vector seeded from a subject id. */
+function seededUnitVector(seed: string, dim = EMBED_DIM): number[] {
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const v: number[] = [];
+  for (let i = 0; i < dim; i++) {
+    h = Math.imul(h ^ (h >>> 13), 0x5bd1e995);
+    v.push(((h >>> 0) / 0xffffffff) * 2 - 1);
+  }
+  const norm = Math.hypot(...v) || 1;
+  return v.map((x) => x / norm);
 }
 
-async function randomOnlineReader(schoolId: string) {
-  const online = await prisma.rFIDReader.findMany({ where: { schoolId, online: true } });
-  if (!online.length) throw badRequest('No online readers to simulate with');
-  return online[Math.floor(Math.random() * online.length)];
+/** The same face re-captured: tiny noise → cosine ≈ 0.98 vs the template. */
+function recapture(vec: number[], sigma = 0.03): number[] {
+  const v = vec.map((x) => x + (Math.random() * 2 - 1) * sigma);
+  const norm = Math.hypot(...v) || 1;
+  return v.map((x) => x / norm);
 }
 
-const scanSchema = z.object({ readerId: z.string(), cardUid: z.string(), direction: z.enum(['ENTRY', 'EXIT']).optional() });
+/** Ensure the student has a synthetic demo template so the real matcher works. */
+async function ensureDemoFace(schoolId: string, studentId: string): Promise<number[]> {
+  const existing = await prisma.faceEmbedding.findFirst({ where: { schoolId, subjectType: 'STUDENT', subjectId: studentId } });
+  if (existing) return JSON.parse(existing.vectorString);
+  const student = await prisma.student.findFirst({ where: { id: studentId, schoolId } });
+  if (!student) throw badRequest('Student not found');
+  const vec = seededUnitVector(studentId);
+  await enrollFace({ schoolId, subjectType: 'STUDENT', subjectId: studentId, name: student.name, embeddings: [{ vector: vec, label: 'demo-synthetic', quality: 0 }] });
+  return vec;
+}
+
+async function rosterStudent(sessionId: string, index = 0) {
+  const v = await prisma.attendanceVerification.findMany({ where: { sessionId }, include: { student: true }, orderBy: { student: { rollNo: 'asc' } }, take: 5 });
+  if (!v.length) throw badRequest('This session has no students on its register.');
+  return v[Math.min(index, v.length - 1)].student;
+}
+
+// Start a demo session for a class (or reuse the class's active one).
+const startSchema = z.object({ classId: z.string() });
 router.post(
-  '/scan',
-  validateBody(scanSchema),
+  '/session',
+  validateBody(startSchema),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
-    const { readerId, cardUid, direction } = req.body as z.infer<typeof scanSchema>;
-    res.json(await processScan({ schoolId, source: 'RFID', readerId, cardUid, direction, createdBy: req.user!.sub, notes: 'Simulator' }));
+    const existing = await prisma.attendanceSession.findFirst({ where: { schoolId, classId: req.body.classId, status: 'ACTIVE' } });
+    if (existing && (await expireIfDue(existing.id)) === 'ACTIVE') return res.json({ sessionId: existing.id, reused: true });
+    const s = await startSession({ schoolId, classId: req.body.classId, teacherId: await anyTeacher(schoolId), createdBy: req.user!.sub, actorName: req.user!.name });
+    res.status(201).json({ sessionId: s.id, reused: false });
   }),
 );
 
-router.post(
-  '/random',
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const [reader, card] = await Promise.all([randomOnlineReader(schoolId), randomActiveCard(schoolId)]);
-    res.json(await processScan({ schoolId, source: 'RFID', readerId: reader.id, cardUid: card.uid, createdBy: req.user!.sub, notes: 'Simulator: random' }));
-  }),
-);
+const scenarioSchema = z.object({ sessionId: z.string() });
 
-const burstSchema = z.object({ readerId: z.string().optional(), count: z.number().int().min(1).max(30).default(10) });
-router.post(
-  '/burst',
-  validateBody(burstSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { readerId, count } = req.body as z.infer<typeof burstSchema>;
-    const reader = readerId ? await readers.getReader(schoolId, readerId) : await randomOnlineReader(schoolId);
-    const results = [];
-    for (let i = 0; i < count; i++) {
-      const card = await randomActiveCard(schoolId);
-      results.push(await processScan({ schoolId, source: 'RFID', readerId: reader.id, cardUid: card.uid, createdBy: req.user!.sub, notes: 'Simulator: burst' }));
-    }
-    res.json({ results });
-  }),
-);
+// 1 · Correct face → PRESENT
+router.post('/correct-face', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  const student = await rosterStudent(req.body.sessionId, 0);
+  const template = await ensureDemoFace(schoolId, student.id);
+  res.json(await markFace({ schoolId, sessionId: req.body.sessionId, embedding: recapture(template), actorId: req.user!.sub }));
+}));
 
-const readerOnlySchema = z.object({ readerId: z.string().optional() });
-router.post(
-  '/unknown-card',
-  validateBody(readerOnlySchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { readerId } = req.body as z.infer<typeof readerOnlySchema>;
-    const reader = readerId ? await readers.getReader(schoolId, readerId) : await randomOnlineReader(schoolId);
-    const fakeUid = `UNKNOWN-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-    res.json(await processScan({ schoolId, source: 'RFID', readerId: reader.id, cardUid: fakeUid, createdBy: req.user!.sub, notes: 'Simulator: unknown card' }));
-  }),
-);
+// 2 · Unknown face → no confident match, ABSENT (a face nobody enrolled)
+router.post('/unknown-face', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  res.json(await markFace({ schoolId, sessionId: req.body.sessionId, embedding: seededUnitVector(`unknown-${Date.now()}`), actorId: req.user!.sub }));
+}));
 
-router.post(
-  '/duplicate',
-  validateBody(scanSchema.partial({ readerId: true, cardUid: true, direction: true })),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    let { readerId, cardUid } = req.body as Partial<z.infer<typeof scanSchema>>;
-    if (!readerId) readerId = (await randomOnlineReader(schoolId)).id;
-    if (!cardUid) cardUid = (await randomActiveCard(schoolId)).uid;
-    const first = await processScan({ schoolId, source: 'RFID', readerId, cardUid, createdBy: req.user!.sub, notes: 'Simulator: duplicate (1st)' });
-    const second = await processScan({ schoolId, source: 'RFID', readerId, cardUid, createdBy: req.user!.sub, notes: 'Simulator: duplicate (2nd)' });
-    res.json({ first, second });
-  }),
-);
+// 3 · No face detected → the frame carried no face
+router.post('/no-face', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  res.json({ state: 'ABSENT', reason: 'No face detected in the frame (empty capture).', sessionId: req.body.sessionId });
+}));
 
-const offlineReaderSchema = z.object({ readerId: z.string() });
-router.post(
-  '/offline-reader',
-  validateBody(offlineReaderSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { readerId } = req.body as z.infer<typeof offlineReaderSchema>;
-    await readers.forceReaderOnline(schoolId, readerId, false);
-    const card = await randomActiveCard(schoolId);
-    res.json(await processScan({ schoolId, source: 'RFID', readerId, cardUid: card.uid, createdBy: req.user!.sub, notes: 'Simulator: offline reader' }));
-  }),
-);
+// 4 · QR only → QR_VERIFIED, pending the face (becomes UNVERIFIED_QR at expiry)
+router.post('/qr-only', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  const session = await prisma.attendanceSession.findFirst({ where: { id: req.body.sessionId, schoolId } });
+  if (!session) throw badRequest('Session not found');
+  const student = await rosterStudent(req.body.sessionId, 1);
+  res.json(await markQr({ schoolId, sessionId: session.id, token: session.sessionToken, studentId: student.id, actorId: req.user!.sub }));
+}));
 
-const cardIdSchema = z.object({ cardId: z.string(), readerId: z.string().optional() });
-router.post(
-  '/lost-card',
-  validateBody(cardIdSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { cardId, readerId } = req.body as z.infer<typeof cardIdSchema>;
-    // Resolve the reader BEFORE mutating the card — a reader lookup failure
-    // must not leave the card half-transitioned with nothing to show for it.
-    const reader = readerId ? await readers.getReader(schoolId, readerId) : await randomOnlineReader(schoolId);
-    const card = await cards.reportLost(schoolId, cardId, { id: req.user!.sub, name: req.user!.name });
-    res.json(await processScan({ schoolId, source: 'RFID', readerId: reader.id, cardUid: card.uid, createdBy: req.user!.sub, notes: 'Simulator: lost card' }));
-  }),
-);
+// 5 · QR + matching face → PRESENT (both factors)
+router.post('/qr-face', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  const session = await prisma.attendanceSession.findFirst({ where: { id: req.body.sessionId, schoolId } });
+  if (!session) throw badRequest('Session not found');
+  const student = await rosterStudent(req.body.sessionId, 2);
+  const template = await ensureDemoFace(schoolId, student.id);
+  res.json(await markQr({ schoolId, sessionId: session.id, token: session.sessionToken, studentId: student.id, embedding: recapture(template), actorId: req.user!.sub }));
+}));
 
-router.post(
-  '/disabled-card',
-  validateBody(cardIdSchema),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { cardId, readerId } = req.body as z.infer<typeof cardIdSchema>;
-    const reader = readerId ? await readers.getReader(schoolId, readerId) : await randomOnlineReader(schoolId);
-    const card = await cards.disableCard(schoolId, cardId, { id: req.user!.sub, name: req.user!.name });
-    res.json(await processScan({ schoolId, source: 'RFID', readerId: reader.id, cardUid: card.uid, createdBy: req.user!.sub, notes: 'Simulator: disabled card' }));
-  }),
-);
+// 6 · Proxy attempt → QR claims A, face is B → PROXY_ATTEMPT + alert
+router.post('/proxy', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  const session = await prisma.attendanceSession.findFirst({ where: { id: req.body.sessionId, schoolId } });
+  if (!session) throw badRequest('Session not found');
+  const claim = await rosterStudent(req.body.sessionId, 3);
+  const impostor = await rosterStudent(req.body.sessionId, 4);
+  await ensureDemoFace(schoolId, claim.id); // the claimed student must be enrolled to verify against
+  const impostorFace = await ensureDemoFace(schoolId, impostor.id);
+  res.json(await markQr({ schoolId, sessionId: session.id, token: session.sessionToken, studentId: claim.id, embedding: recapture(impostorFace), actorId: req.user!.sub }));
+}));
 
-router.post(
-  '/late',
-  validateBody(scanSchema.omit({ direction: true }).partial({ readerId: true, cardUid: true })),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    let { readerId, cardUid } = req.body as { readerId?: string; cardUid?: string };
-    if (!readerId) readerId = (await randomOnlineReader(schoolId)).id;
-    if (!cardUid) cardUid = (await randomActiveCard(schoolId)).uid;
-    const settings = await getPresenceSettings(schoolId);
-    const lateAt = new Date();
-    const minutesPastMidnight = minutesOfDay(settings.schoolStartTime) + settings.lateGraceMinutes + 20;
-    lateAt.setHours(0, 0, 0, 0);
-    lateAt.setMinutes(minutesPastMidnight);
-    res.json(await processScan({ schoolId, source: 'RFID', readerId, cardUid, direction: 'ENTRY', simulateAt: lateAt, createdBy: req.user!.sub, notes: 'Simulator: forced late arrival' }));
-  }),
-);
+// 7 · Expired session → marking is refused (anti-replay boundary)
+router.post('/expired', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  const schoolId = req.user!.schoolId;
+  await prisma.attendanceSession.update({ where: { id: req.body.sessionId }, data: { expiryTime: new Date(Date.now() - 1000) } });
+  await expireIfDue(req.body.sessionId);
+  const student = await rosterStudent(req.body.sessionId, 0);
+  try {
+    const template = await ensureDemoFace(schoolId, student.id);
+    const result = await markFace({ schoolId, sessionId: req.body.sessionId, embedding: recapture(template), actorId: req.user!.sub });
+    res.json(result);
+  } catch (e) {
+    res.json({ state: 'REJECTED', reason: e instanceof Error ? e.message : 'Session expired', sessionId: req.body.sessionId });
+  }
+}));
 
-router.post(
-  '/exit',
-  validateBody(scanSchema.omit({ direction: true })),
-  asyncHandler(async (req, res) => {
-    const schoolId = req.user!.schoolId;
-    const { readerId, cardUid } = req.body as { readerId: string; cardUid: string };
-    res.json(await processScan({ schoolId, source: 'RFID', readerId, cardUid, direction: 'EXIT', createdBy: req.user!.sub, notes: 'Simulator: exit scan' }));
-  }),
-);
+// 8 · Camera offline → the face service is unreachable (honest degradation)
+router.post('/camera-offline', validateBody(scenarioSchema), asyncHandler(async (_req, res) => {
+  res.json({ state: 'REJECTED', reason: 'Camera / face service is offline — no attendance can be captured until it is restored.', sessionId: _req.body.sessionId });
+}));
 
-// Fusion (RFID + face) is deliberately NOT simulated here with synthetic
-// templates any more — the anti-proxy loop runs only against a real camera:
-// Face Recognition → Live Kiosk → Gate mode, which pairs the physical/manual
-// card tap with the live descriptor and requires BOTH to agree.
+// Close the demo session.
+router.post('/close', validateBody(scenarioSchema), asyncHandler(async (req, res) => {
+  await closeSession(req.user!.schoolId, req.body.sessionId, { id: req.user!.sub, name: req.user!.name });
+  res.json({ ok: true });
+}));
+
+async function anyTeacher(schoolId: string): Promise<string> {
+  const t = await prisma.teacher.findFirst({ where: { schoolId }, select: { id: true } });
+  if (!t) throw badRequest('No teachers to own a session');
+  return t.id;
+}
 
 export default router;

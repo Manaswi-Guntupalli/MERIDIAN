@@ -16,8 +16,12 @@
     "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
+    "dev:stop": "node scripts/free-ports.mjs",
+    "dev:fresh": "node scripts/free-ports.mjs && npm run dev",
     "intelligence": "cd intelligence && python -m uvicorn app.main:app --port 8010",
     "intelligence:install": "cd intelligence && python -m pip install -r requirements.txt",
+    "faceservice": "cd faceservice && python -m uvicorn app:api --port 8020",
+    "faceservice:install": "cd faceservice && python -m pip install -r requirements.txt",
     "build": "npm --prefix server run build && npm --prefix client run build",
     "start": "npm --prefix server run start"
   },

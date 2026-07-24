@@ -12,11 +12,12 @@ const toJson = (v: unknown) => JSON.stringify(v);
 let schoolId = '';
 const actor = { id: undefined as string | undefined, name: 'Test Principal' };
 
-/** Next date that falls on timetable day 0 (Monday). */
+/** Next date that falls on timetable day 0 (Monday). Local components — not
+ *  toISOString(), whose UTC shift can cross midnight onto a weekend. */
 function nextMonday(): string {
   const d = new Date();
   d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7));
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 beforeAll(async () => {

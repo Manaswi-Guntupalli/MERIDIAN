@@ -58,7 +58,7 @@ export default function Attendance() {
       <PageHeader
         overline="Pulse · ERP"
         title="Attendance"
-        subtitle="Mark manually, or let Presence stream RFID/CV taps in live. Every mark is a reversible event."
+        subtitle="Mark manually here, or let Presence capture face + QR attendance live. Every mark is a reversible event."
         actions={
           <select value={classId} onChange={(e) => { setClassId(e.target.value); setParams({ classId: e.target.value }); }} className="input w-40">
             {classes.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

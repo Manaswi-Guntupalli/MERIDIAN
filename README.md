@@ -12,7 +12,7 @@ Every module writes through a shared **event-sourced trust core**. That is what 
 |---|---|---|
 | 📄 | **Lumen** | Document intelligence — paper forms become verified records with pixel-level proof |
 | 🕰 | **Kairos** | Timetable optimisation — conflict-free schedules that explain themselves, and explain failure |
-| 📡 | **Presence** | Attendance integrity — RFID × face fusion that kills proxy attendance |
+| 📡 | **Presence** | Attendance integrity — face recognition + session QR, fused against proxy attendance |
 | 📈 | **Foresight** | Predictive operations — forecasts and early warning, with the arithmetic on the page |
 | 💬 | **Copilot** | Actionable assistant — asks answered from live data, then *executed* in one click |
 | 🫀 | **Pulse** | ERP command centre — an exception queue, not a chart museum |
@@ -27,8 +27,8 @@ Every module writes through a shared **event-sourced trust core**. That is what 
                  │
         ┌────────┴─────────┐
         ▼                  ▼
-   SQLite / Postgres   Python Intelligence  (:8010)
-   event-sourced core   read-only · scikit-learn
+   SQLite / Postgres   Python Intelligence  (:8010)  read-only · scikit-learn
+   event-sourced core   Python Face service  (:8020)  InsightFace · embeddings
 ```
 
 ### 30-second start
@@ -73,7 +73,7 @@ Log in with one tap as `principal@meridian.school` (password `meridian123`).
 | Manual document entry, errors found at certificate time | Confidence-scored intake with human review and pixel provenance |
 | No undo — mistakes are permanent or need a DBA | Event-backed undo, offered only where a reverser genuinely exists |
 | Timetable generator that says "infeasible" and shrugs | Names the minimal conflicting rules **and the cheapest fix** |
-| RFID attendance nobody reconciles; buddy-punching is an open secret | Dual-factor fusion — the card claims, the camera confirms |
+| RFID attendance nobody reconciles; buddy-punching is an open secret | Face + QR fusion — the QR claims, the live camera confirms |
 
 ---
 
@@ -120,6 +120,15 @@ npm run intelligence:install   # one-time: pip install -r intelligence/requireme
 npm run intelligence           # runs on :8010
 ```
 
+### The face service (for live face attendance)
+
+The Live Kiosk and enrollment embed camera frames via a Python InsightFace microservice. Without it, the kiosk shows an explicit offline state; the **Simulator still exercises every attendance scenario** with synthetic embeddings, so a live demo never needs a webcam.
+
+```bash
+npm run faceservice:install    # one-time: pip install (downloads the model on first run)
+npm run faceservice            # runs on :8020
+```
+
 ⚠️ The engine has **no hot reload** — restart it after editing Python.
 
 ### Demo logins — password `meridian123`
@@ -141,8 +150,9 @@ The login screen has one-tap role buttons; no typing needed.
 | `npm run setup` | Full first-run: install → `.env` → DB → seed |
 | `npm run dev` | Server + client together |
 | `npm run seed` | Reset to the clean demo school |
-| `npm run intelligence` | Start the Python engine (:8010) |
-| `npm test` *(in `server/`)* | 96 tests |
+| `npm run intelligence` | Start the Python intelligence engine (:8010) |
+| `npm run faceservice` | Start the Python face service (:8020) |
+| `npm test` *(in `server/`)* | 71 tests |
 | `npm run typecheck` | Per workspace |
 | `npx tsx scripts/audit-db.ts` *(in `server/`)* | Database integrity + coverage audit |
 | `npm run build` | Production build of both workspaces |
@@ -192,24 +202,24 @@ Mark a teacher absent and a single call: records the absence → scans the live 
 Undo restores state atomically and sends honest corrections — it never pretends the first messages weren't sent. When no qualified cover exists, it says so and frees the room rather than assigning an unqualified teacher to look good.
 
 ### 📡 Presence — Attendance Integrity
-**RFID and face recognition, fused against proxy attendance.** `/presence`, `/face-recognition`
+**Face recognition with a session QR fallback, fused against proxy attendance.** `/presence`, `/face-recognition`
 
-One engine (`processScan`) is the single ingest point for every attendance source — real reader, simulator, manual mark, face kiosk, fusion gate. Everything happens in **one transaction**, so two near-simultaneous taps can't both slip past the duplicate check.
+A teacher opens an **attendance session** for a class; it mints a cryptographically random token, seeds a `PENDING` row for every student, and auto-expires (default 5 min). **No attendance can be marked outside an active, unexpired session** — the anti-replay boundary. One engine is the single ingest point for every mark (kiosk face, student QR, manual), each in **one transaction**.
 
-The decision ladder: reader online? → card known and active? → student active, with a class? → duplicate window (120 s)? → direction (explicit / one-way reader / inferred) → late policy (start + grace) → write event + materialise the daily row → broadcast, log, notify.
+**Face is the primary method; QR is the fallback.** The per-student state machine:
 
-**Anti-proxy fusion** — the differentiator. The RFID tap *claims* an identity; the live camera must *confirm* it. This turns face recognition from a hard 1:N search into an easy **1:1 verification** against that one student's enrolled templates. Outcomes:
-
-| Result | Meaning |
+| Path | Result |
 |---|---|
-| ✅ Verified | Card + face agree → present, with the similarity written on the event |
-| 🔴 **PROXY blocked** | Face doesn't match the cardholder → no attendance, security alert to admins, and the engine names *who actually showed up* (1:N fallback) |
-| 🔴 Rejected | Strict gate + un-enrolled cardholder → cannot pass on the card alone |
-| ⚪ Degrades honestly | Device path with no enrolled face → plain RFID, and the event says so |
+| Face recognised (1:N) | → **PRESENT** (face alone is sufficient) |
+| QR scanned + matching face (1:1) | → **PRESENT** (both factors) |
+| QR scanned, no face yet | → `QR_VERIFIED`, then **`UNVERIFIED_QR`** at expiry — QR alone is *never* present |
+| QR claims student A but the face is B | → 🔴 **`PROXY_ATTEMPT`** — no attendance, admins alerted, and the engine names *who actually showed up* (1:N fallback) |
 
-**Only face embeddings are stored — never a raw image.** Liveness (blink detection) runs before any mark. Rejections, duplicates and unknown cards are all written as events; nothing is silently dropped.
+**The anti-proxy insight:** the QR *claims* an identity; the live face must *confirm* it — turning recognition from a hard 1:N search into an easy **1:1 verification** against that one student's templates, which collapses the error rate.
 
-The **Simulator** (`/presence/simulator`) drives the *real* engine through every edge case — late arrival, duplicate tap, unknown card, offline reader, lost/disabled card — plus virtual gate hardware that heartbeats readers exactly like physical ones.
+**Embeddings are stored, never a raw image.** Frames are embedded **server-side in memory** by a Python InsightFace microservice (512-D ArcFace) and discarded — a browser-supplied descriptor would be forgeable, which is a real hole in an anti-proxy system. Liveness (blink) gates every mark; enrollment is consent-first (DPDP/GDPR).
+
+The **Simulator** (`/presence/simulator`) drives the *real* engine through all 9 scenarios — correct face, QR-only, QR+face, proxy attempt, unknown face, no face, expired session, camera offline — with synthetic embeddings, so every path is exercised without a webcam.
 
 ### 📈 Foresight — Predictive Operations
 **Forecasts and early warning, with the arithmetic on the page.** `/foresight`
@@ -263,7 +273,7 @@ Events are written **inside the caller's transaction**, so a state change and it
 | **School ERP Automation** | Pulse | Event-sourced single spine; enter-once data; every screen a live projection |
 | **Admin Dashboard (minimal clicks, proactive)** | Pulse Command Center | Ranked exception queue with **executing** one-click resolves, transparent priority formula |
 | **Predictive Resource Allocation** | Foresight | Substitute-demand + attendance + fee forecasts with intervals; at-risk index |
-| **Automated Attendance (RFID / CV)** | Presence | Dual-factor fusion, four-tier outcome ladder, embeddings-only privacy |
+| **Automated Attendance (Face / QR)** | Presence | Session-scoped face + QR, anti-proxy state machine, embeddings-only privacy |
 | **Reactive state, synced UI** | Socket.io + TanStack Query | Server-authoritative: pushed events invalidate query caches, so open screens converge within about a second — the web-native answer to the brief's Riverpod nod |
 
 ---
@@ -272,7 +282,7 @@ Events are written **inside the caller's transaction**, so a state change and it
 
 Full script with timings: [`docs/demo-script-5min.md`](docs/demo-script-5min.md).
 
-1. **Fusion anti-proxy** (`/face-recognition` → Gate mode) — tap your own card with your face in frame → ✅ verified. Tap a *teammate's* card with your face in frame → 🔴 **PROXY blocked**, with the impostor named and admins alerted.
+1. **Anti-proxy attendance** (`/face-recognition` → Live Kiosk, or the Simulator) — a student's face is recognised → present. A QR that claims one student while the camera sees another → 🔴 **PROXY blocked**, with the impostor named and admins alerted.
 2. **The cascade** (`/staff`) — one click plays back the real executed steps with server timestamps, then **Undo everything** restores it atomically.
 3. **Provenance** (`/lumen`) — tap any extracted value, see the exact pixels it was read from; low-confidence fields wait in a worst-first queue.
 4. **Copilot that acts** (`/copilot`) — ask a question, then press ⚡ and watch the operation complete and report back.
@@ -288,7 +298,7 @@ A blank, OCR-optimised admission form is included for live demos: [`docs/admissi
 | | |
 |---|---|
 | ![Command centre](docs/screenshots/dashboard.png) **Pulse** — the exception queue with one-click resolves | ![Lumen](docs/screenshots/lumen.png) **Lumen** — extracted fields beside the scan, with proof crops |
-| ![Kairos](docs/screenshots/kairos.png) **Kairos** — the published grid, every slot explainable | ![Presence](docs/screenshots/presence.png) **Presence** — fusion gate blocking a proxy attempt |
+| ![Kairos](docs/screenshots/kairos.png) **Kairos** — the published grid, every slot explainable | ![Presence](docs/screenshots/presence.png) **Presence** — the live session grid, a proxy attempt blocked |
 | ![Copilot](docs/screenshots/copilot.png) **Copilot** — a grounded answer with an ⚡ execute button | |
 
 ---
@@ -330,7 +340,7 @@ MERIDIAN/
 ├── client/src/
 │   ├── pages/              # one file per route; kairos/ and presence/ have sub-views
 │   ├── components/         # ui/ primitives, layout/, face/
-│   ├── hooks/              # useRealtime, useRfidReader, useWebcam, useVoice…
+│   ├── hooks/              # useRealtime, useWebcam, useVoice…
 │   ├── store/              # auth + ui (Zustand)
 │   ├── lib/                # api client, socket, face-api wrapper, utils
 │   └── constants/nav.ts    # nav + per-route role guard (single source of truth)
@@ -344,9 +354,9 @@ MERIDIAN/
 │       ├── services/
 │       │   ├── lumen/      # 19 modules: ingest→classify→extract→…→commit
 │       │   ├── kairos/     # engine, workflow, cascade, substitute, validate
-│       │   ├── presence/   # engine, cards, readers, analytics, channels
+│       │   ├── presence/   # engine, session, analytics, channels, settings
 │       │   ├── eventStore.ts trustLedger.ts intelligence.ts copilot*.ts
-│       ├── middleware/     # auth (JWT + reader keys), error handler
+│       ├── middleware/     # auth (JWT + RBAC), error handler
 │       └── lib/            # prisma, socket, auth, openai, errors
 │
 ├── intelligence/app/
@@ -375,15 +385,16 @@ All under `/api`, JWT-authenticated unless noted, school-scoped by the token.
 | `/staff/absence/cascade`, `/absence/undo` | the reversible cascade |
 | `/documents` | Lumen: upload, status, fields, confirm/correct, verify, **commit**, history, export, **commit-policy** |
 | `/timetable` | Kairos: overview, generate, draft edit/lock, approve, publish, rollback, substitute plan/apply |
-| `/presence` | readers, cards, scan (device or staff), feed, analytics, settings, simulate/* |
-| `/presence/scan/fusion` | dual-factor RFID × face ingest |
+| `/presence/session` | start/close/get a session, submit face, submit QR, manual mark |
+| `/presence` | events feed, analytics (method breakdown), settings, simulate/* |
+| `/face` | enroll (images → server embed), status, unknown/proxy log |
 | `/face` | enroll, recognize-batch, attendance, status, unknown |
 | `/copilot` | ask, suggestions |
 | `/actions/execute` | one-click operations: assign-cover, fee-reminders, at-risk-outreach, counselling-flag |
 | `/trust` | event feed, time-machine replay, **undo** |
 | `/twin` `/emergency` `/reports` `/notifications` `/school` | campus map, incident coordination, AI reports, inbox, config |
 
-**Device authentication:** real RFID readers POST to `/api/presence/scan` with an `x-reader-key` header (bcrypt-hashed at rest); the reader's own ID is taken from the authenticated device, never from the request body.
+**Face service:** the browser sends camera frames to Node, which forwards them to the Python face service (`:8020`) for embedding; only the 512-D vector is kept. Matching and all DB access stay in Node.
 
 ---
 
@@ -396,7 +407,7 @@ All under `/api`, JWT-authenticated unless noted, school-scoped by the token.
 - **Academic**: `Class`, `Subject`, `AcademicConfig` (calendar, periods, breaks, blocked cells, holidays), `ClassSubjectPlan` (curriculum — what drives generation).
 - **Timetable**: `Timetable` (draft/approved/published/archived, exactly one active) → `TimetableSlot` with the three uniqueness guarantees; `StaffAbsence` → `Substitution`.
 - **Attendance**: `AttendanceEvent` (append-only raw scans, every source) + `Attendance` (materialised daily view).
-- **Presence hardware**: `RFIDCard` (lifecycle + replacement chain), `RFIDReader`, `ReaderHeartbeat`.
+- **Presence**: `AttendanceSession` (token + window), `AttendanceVerification` (per-student state machine), `FaceEnrollment` (consent) → `FaceEmbedding` (512-D + model).
 - **Lumen**: `Document` → `ExtractedField` (value, `rawValue`, confidence, crop, status, source), `DocumentPage` (word boxes = the audit trail), `DocumentInsight`, `DocumentActivity` (per-document timeline).
 - **Biometrics**: `FaceEmbedding` (128-D vectors only — never an image), `FaceEvent` (unknown/spoof/proxy log).
 - **Trust**: `Event`, `AILog`, `AuditLog`.
@@ -426,12 +437,12 @@ Run `npx tsx scripts/audit-db.ts` in `server/` for a live integrity + coverage r
 ## 14. Testing & quality
 
 ```bash
-cd server && npm test        # 96 tests across 17 files
+cd server && npm test        # 71 tests across 12 files
 npm run typecheck            # in server/ and client/ — both clean
 npx tsx scripts/audit-db.ts  # database integrity + feature-data coverage
 ```
 
-Tests cover the things that would actually hurt: the Kairos solver audited against every hard constraint from a clean state (including the subject-run rule), the reversible cascade end-to-end with undo, fusion verified/proxy/strict-rejection paths, Lumen commit + class validation + **commit policy** (School A blocks / School B commits, same document), intake hardening (page cap, HEIC/Office rejection, UNKNOWN typing), digitally-filled PDFs, presence scan edge cases, emergency coordination, and RBAC boundaries.
+Tests cover the things that would actually hurt: the Kairos solver audited against every hard constraint from a clean state (including the subject-run rule), the reversible cascade end-to-end with undo, attendance sessions (face→present, QR-only→unverified, QR+face, anti-proxy, expiry, undo), Lumen commit + class validation + **commit policy** (School A blocks / School B commits, same document), intake hardening (page cap, HEIC/Office rejection, UNKNOWN typing), digitally-filled PDFs, presence attendance edge cases, emergency coordination, and RBAC boundaries.
 
 Each test builds its own school-scoped fixture with a random suffix, so suites never interfere despite sharing one SQLite file.
 
@@ -457,8 +468,8 @@ The whole product is a claim about honesty, so here is where the edges are:
 |---|---|
 | Dashboard shows "engine offline" | Python service isn't running → `npm run intelligence`. (This is the honest degradation working, not a crash.) |
 | Insights look stale after editing Python | The engine has no hot reload — restart it. |
-| Every scan is `Rejected — reader offline` | Readers went quiet (>90 s). Open Presence → Simulator → **Virtual gate hardware ON**, or click "Bring it online". |
-| Gate mode rejects a valid card | Strict fusion requires an enrolled face. Face Recognition → Enrollment first. |
+| Kiosk says "face service unreachable" | Start it: `npm run faceservice` (:8020). The kiosk shows this explicitly rather than faking a match. |
+| A face isn't recognised at the kiosk | The student isn't enrolled, or isn't on that session's class register. Enroll under Face Recognition → Enrollment. |
 | A card keeps getting rejected as lost/disabled | The simulator's "Lost/Disabled card" scenario really changed its status. Restore under Manage → Cards. |
 | Cascade covered 0 periods | No qualified, free substitute existed — it says so and frees the room rather than assigning someone unqualified. Cascade a teacher of a shared subject to see full coverage. |
 | Lumen extracted labels but no values | Fixed — digitally-filled PDFs are read from the annotation layer. If it recurs, re-upload; the pipeline falls back to OCR for appearance-only fills. |
@@ -474,7 +485,7 @@ The whole product is a claim about honesty, so here is where the edges are:
 | [`system-architecture.md`](system-architecture.md) | Deep technical architecture — data flow, engine internals, security, trade-offs |
 | [`techstack.md`](techstack.md) | Every dependency and why it was chosen |
 | [`docs/demo-script-5min.md`](docs/demo-script-5min.md) | Minute-by-minute demo script with failure recovery lines |
-| [`docs/presence-rfid-simulator.md`](docs/presence-rfid-simulator.md) | What every simulator scenario really does |
+| [`docs/presence-attendance-simulator.md`](docs/presence-attendance-simulator.md) | Attendance sessions, the QR fallback, and every simulator scenario |
 | [`intelligence/README.md`](intelligence/README.md) | The Python engine's honesty rules and module layout |
 
 ---

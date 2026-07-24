@@ -12,11 +12,11 @@
 |---|---|---|
 | 1 | All 3 services up | `npm run dev` + `npm run intelligence` — dashboard shows **no** "engine offline" badge |
 | 2 | Logged in as **principal** | `principal@meridian.school` / `meridian123` |
-| 3 | Readers online | Presence → Simulator → **Virtual gate hardware ON** → badge green `4/4 readers online` |
-| 4 | Today has live data | Simulator → **Morning rush (12) → Run**, then 1 **Entry scan** |
+| 3 | Face service up | `npm run faceservice` (:8020). For a camera-free demo, the **Simulator** exercises every scenario with synthetic embeddings. |
+| 4 | Today has live attendance | Presence → Simulator → **Start session** for a class → run **Correct face** a few times so the grid shows greens |
 | 5 | A Lumen doc already processed | Lumen should show ≥1 document in REVIEW/VERIFIED — if not, drop a sample form NOW (processing takes ~10–30s; never upload live on stage) |
 | 6 | Know your cascade teacher | Pick a teacher of a **shared subject** (Math/English — check Staff page that ≥2 teachers list that subject). |
-| 6b | **Two faces enrolled for the gate demo** | Face Recognition → Enrollment: enroll **yourself as Student A** (the card you'll tap) and **a teammate as Student B**. The proxy demo = your face + Student B's card. Test both taps once before going live. |
+| 6b | **Two faces enrolled (live kiosk demo)** | Face Recognition → Enrollment: enroll **yourself** and **a teammate**. Live demo = your face marks you present; the proxy case is cleanest via the **Simulator** (`Proxy attempt`). |
 | 7 | Dashboard recomputed | Click **Recompute** once so insights match today's data |
 | 8 | Second browser tab open | Logged in as `parent@meridian.school` — you'll flash it twice for notifications |
 | 9 | Close everything else | One window, 100% zoom, notifications-of-the-OS off |
@@ -59,24 +59,24 @@
 
 ---
 
-### ⏱ 1:05 – 2:10 — Fusion anti-proxy gate ⭐ (the differentiator, LIVE)
+### ⏱ 1:05 – 2:10 — Anti-proxy attendance ⭐ (the differentiator, LIVE)
 
-**SCREEN:** Face Recognition → Live Kiosk → **Gate mode · RFID + Face**. Camera running, your face in frame.
+**SCREEN:** Presence → Sessions (start attendance for a class), then Face Recognition → **Live Kiosk**. Camera running.
 
 **SAY:**
-> "Attendance runs on RFID gates plus face recognition — but here's the problem nobody else solves: **buddy-punching**. Your friend taps your card, you're 'present.' So we fused them: the card *claims* an identity, and this **live camera** must confirm that same identity. Nobody gets marked present without **both**."
+> "A teacher opens attendance for the class — that mints a session QR that dies in 5 minutes. Now the problem nobody else solves: **buddy-punching**. Your friend scans your QR, you're 'present.' So the QR only *claims* an identity — this **live camera** must confirm it. Face alone is enough; QR alone is never present."
 
-**DO:** With your face in frame (blink for liveness), select **your own** enrolled card → **Tap card at gate**.
+**DO:** Step in front of the kiosk and blink. Your face is recognised → you flip **green → Present** on the live grid, with the proof: *face verified, 93%*.
 
 **SAY (pointing at the toast/log):**
-> "I tap my card, the camera verifies it's really me — present, with the proof written on the event: *face verified, 97%*. This is my actual face being matched right now, not a recording."
+> "That's my actual face being matched right now against my enrolled template — not a recording, and the image never leaves the server's memory. Only the vector is stored."
 
-**DO:** Now select **Student B's card** (your teammate's, enrolled earlier) — your face still in frame → **Tap card at gate**.
+**DO:** Now the proxy case (cleanest on the **Simulator** tab → **Proxy attempt**): a QR claims Student A, but the camera sees Student B.
 
 **SAY (this is your money moment — slow down):**
-> "Now I try to buddy-punch: I tap *someone else's* card. The live face doesn't verify against that cardholder — **blocked as PROXY**, no attendance recorded, and look: it tells us **who actually showed up — me**. Every admin just got a security alert. Proxy attendance — a real, unsolved problem in schools — dead. And if a student has no enrolled face? The strict gate rejects the card alone. Card **and** face, always."
+> "Someone scans A's QR, but the face is B. The 1:1 check fails — **blocked as PROXY**, no attendance recorded, and it names **who actually showed up**. Every admin just got a CRITICAL alert. And a QR with no face at all? It sits pending and expires to **Unverified QR** — never present. Proxy attendance — a real, unsolved problem — dead."
 
-**SEE:** Red **"Proxy blocked"** in the kiosk log with the reason line; optionally flash the notification bell (CRITICAL security alert).
+**SEE:** Red **"Proxy blocked"** with the reason naming the impostor; flash the notification bell (CRITICAL security alert).
 
 ---
 
@@ -162,4 +162,4 @@
 ## ⏱ Timing discipline
 - Total talk track ≈ 640 words ≈ 4:15 at demo pace — leaves 45s of click-and-breathe buffer.
 - If running long at 4:00, **cut Foresight**, keep the closing lines verbatim.
-- The two ⭐ segments (Fusion, Cascade) are the memory makers — never rush those two.
+- The two ⭐ segments (anti-proxy attendance, the cascade) are the memory makers — never rush those two.

@@ -26,6 +26,23 @@ export function loadFaceModels(): Promise<void> {
 
 const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 });
 
+// Capture the current video frame as a base64 JPEG to send to the server for
+// embedding. Face MATCHING and embedding both live server-side now (InsightFace)
+// — the browser only ever ships pixels over TLS, never a forgeable descriptor,
+// and the server discards the image after embedding.
+const captureCanvas = document.createElement('canvas');
+export function captureFrameBase64(video: HTMLVideoElement, maxWidth = 640): string {
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 480;
+  const scale = Math.min(1, maxWidth / w);
+  captureCanvas.width = Math.round(w * scale);
+  captureCanvas.height = Math.round(h * scale);
+  const ctx = captureCanvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+  return captureCanvas.toDataURL('image/jpeg', 0.85).split(',', 2)[1];
+}
+
 export type FaceInput = HTMLVideoElement | HTMLCanvasElement | HTMLImageElement;
 
 export interface DetectedFace {

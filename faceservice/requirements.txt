@@ -1,0 +1,10 @@
+# Meridian Face Service — pixels → 512-D embedding. Python 3.11+ (tested 3.14).
+# The model pack (buffalo_l, ~281 MB) downloads once to ~/.insightface on first
+# run. All matching/DB access stays in Node; this service only embeds.
+fastapi>=0.115
+uvicorn>=0.32
+pydantic>=2.9
+numpy>=2.1
+insightface>=0.7
+onnxruntime>=1.20
+opencv-python-headless>=4.10

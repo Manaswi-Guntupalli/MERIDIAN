@@ -10,6 +10,18 @@ async function main() {
   const httpServer = createServer(app);
   initSocket(httpServer);
 
+  // A friendly message instead of an unhandled 'error' crash when the port is
+  // taken — almost always a previous dev server that didn't shut down.
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n  ✖ Port ${env.port} is already in use — another Meridian server (likely a stale one) is still running.`);
+      console.error(`    Free it and retry:  npm run dev:stop   then   npm run dev`);
+      console.error(`    (or in one step:    npm run dev:fresh)\n`);
+      process.exit(1);
+    }
+    throw err;
+  });
+
   httpServer.listen(env.port, () => {
     console.log(`\n  ⬦ Meridian API  →  http://localhost:${env.port}/api`);
     console.log(`  ⬦ Health        →  http://localhost:${env.port}/api/health`);

@@ -8,8 +8,8 @@ const daysAgo = (n: number) => {
   return d;
 };
 
-// Daily/weekly/monthly trend from the materialized Attendance table — the
-// same source-of-truth every other engine (Dashboard/Twin/Foresight) reads.
+// Daily trend from the materialized Attendance table — the same source of truth
+// every other engine (Dashboard/Twin/Foresight) reads.
 export async function attendanceTrend(schoolId: string, days: number) {
   const since = daysAgo(days - 1);
   const [rows, totalStudents] = await Promise.all([
@@ -39,11 +39,11 @@ export async function attendanceTrend(schoolId: string, days: number) {
 
 export async function todaySummary(schoolId: string) {
   const date = dateStr(new Date());
-  const [attendance, totalStudents, readers, unknownToday] = await Promise.all([
+  const [attendance, totalStudents, activeSessions, proxyToday] = await Promise.all([
     prisma.attendance.findMany({ where: { schoolId, date } }),
     prisma.student.count({ where: { schoolId, active: true } }),
-    prisma.rFIDReader.findMany({ where: { schoolId } }),
-    prisma.attendanceEvent.count({ where: { schoolId, verificationStatus: 'UNKNOWN', timestamp: { gte: new Date(`${date}T00:00:00`) } } }),
+    prisma.attendanceSession.count({ where: { schoolId, status: 'ACTIVE' } }),
+    prisma.attendanceEvent.count({ where: { schoolId, verificationStatus: 'PROXY', timestamp: { gte: new Date(`${date}T00:00:00`) } } }),
   ]);
   const present = attendance.filter((a) => a.status === 'PRESENT').length;
   const late = attendance.filter((a) => a.status === 'LATE').length;
@@ -55,22 +55,17 @@ export async function todaySummary(schoolId: string) {
     late,
     absent: Math.max(0, totalStudents - marked),
     unmarked: Math.max(0, totalStudents - marked),
-    readersOnline: readers.filter((r) => r.online).length,
-    readersOffline: readers.filter((r) => !r.online).length,
-    unknownCards: unknownToday,
+    activeSessions,
+    proxyAttempts: proxyToday,
   };
 }
 
-// Naive occupancy: verified/late ENTRY+REENTRY minus EXIT events today.
+// Live occupancy from today's PRESENT/LATE marks (session attendance has no
+// exit concept — a mark means "in class today").
 export async function campusOccupancy(schoolId: string) {
   const date = dateStr(new Date());
-  const events = await prisma.attendanceEvent.findMany({
-    where: { schoolId, verificationStatus: { in: ['VERIFIED', 'LATE'] }, timestamp: { gte: new Date(`${date}T00:00:00`) } },
-    select: { direction: true },
-  });
-  const entries = events.filter((e) => e.direction === 'ENTRY' || e.direction === 'REENTRY').length;
-  const exits = events.filter((e) => e.direction === 'EXIT').length;
-  return { onCampus: Math.max(0, entries - exits), entries, exits };
+  const present = await prisma.attendance.count({ where: { schoolId, date, status: { in: ['PRESENT', 'LATE'] } } });
+  return { onCampus: present, entries: present, exits: 0 };
 }
 
 export async function lateStudents(schoolId: string, days = 14, limit = 20) {
@@ -108,7 +103,7 @@ export async function frequentAbsences(schoolId: string, days = 30, limit = 20) 
 export async function peakEntryTime(schoolId: string, days = 14) {
   const since = daysAgo(days - 1);
   const events = await prisma.attendanceEvent.findMany({
-    where: { schoolId, direction: { in: ['ENTRY', 'REENTRY'] }, verificationStatus: { in: ['VERIFIED', 'LATE'] }, timestamp: { gte: since } },
+    where: { schoolId, verificationStatus: { in: ['VERIFIED', 'LATE'] }, timestamp: { gte: since } },
     select: { timestamp: true },
   });
   const byHour = new Array(24).fill(0);
@@ -118,24 +113,19 @@ export async function peakEntryTime(schoolId: string, days = 14) {
   return { histogram, peakHour: peak.hour, peakCount: peak.count };
 }
 
-export async function readerUsage(schoolId: string, days = 14) {
+// Method breakdown — how attendance is actually being captured (face vs QR vs
+// manual) plus the proxy-attempt count. Replaces the old per-reader usage.
+export async function methodBreakdown(schoolId: string, days = 14) {
   const since = daysAgo(days - 1);
-  const [readers, events] = await Promise.all([
-    prisma.rFIDReader.findMany({ where: { schoolId } }),
-    prisma.attendanceEvent.findMany({ where: { schoolId, readerId: { not: null }, timestamp: { gte: since } }, select: { readerId: true, verificationStatus: true } }),
-  ]);
-  const byReader = new Map<string, { readerId: string; name: string; location: string; total: number; verified: number; duplicate: number; unknown: number; rejected: number }>();
-  for (const r of readers) byReader.set(r.id, { readerId: r.id, name: r.name, location: r.location, total: 0, verified: 0, duplicate: 0, unknown: 0, rejected: 0 });
-  for (const e of events) {
-    if (!e.readerId) continue;
-    const row = byReader.get(e.readerId);
-    if (!row) continue;
-    row.total++;
-    if (e.verificationStatus === 'VERIFIED' || e.verificationStatus === 'LATE') row.verified++;
-    else if (e.verificationStatus === 'DUPLICATE') row.duplicate++;
-    else if (e.verificationStatus === 'UNKNOWN') row.unknown++;
-    // PROXY (fusion mismatch) counts with rejections — the tap was blocked.
-    else if (e.verificationStatus === 'REJECTED' || e.verificationStatus === 'PROXY') row.rejected++;
-  }
-  return [...byReader.values()].sort((a, b) => b.total - a.total);
+  const events = await prisma.attendanceEvent.findMany({ where: { schoolId, timestamp: { gte: since } }, select: { source: true, verificationStatus: true } });
+  const marked = events.filter((e) => e.verificationStatus === 'VERIFIED' || e.verificationStatus === 'LATE');
+  const bySource = { FACE: 0, QR: 0, MANUAL: 0 } as Record<string, number>;
+  for (const e of marked) bySource[e.source] = (bySource[e.source] ?? 0) + 1;
+  return {
+    face: bySource.FACE,
+    qr: bySource.QR,
+    manual: bySource.MANUAL,
+    proxyAttempts: events.filter((e) => e.verificationStatus === 'PROXY').length,
+    unverifiedQr: events.filter((e) => e.verificationStatus === 'UNVERIFIED_QR').length,
+  };
 }

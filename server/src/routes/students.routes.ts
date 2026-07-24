@@ -41,7 +41,6 @@ router.get(
         fees: true,
         parents: { include: { parent: { include: { user: true } } } },
         attendance: { orderBy: { date: 'desc' }, take: 30 },
-        rfidCards: { where: { status: 'ACTIVE' }, take: 1 },
       },
     });
     if (!student) throw notFound('Student not found');

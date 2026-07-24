@@ -21,8 +21,7 @@ router.get(
 const patchSchema = z.object({
   schoolStartTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   lateGraceMinutes: z.number().int().min(0).max(120).optional(),
-  duplicateWindowSeconds: z.number().int().min(0).max(3600).optional(),
-  heartbeatOfflineThresholdSeconds: z.number().int().min(15).max(3600).optional(),
+  sessionDurationMinutes: z.number().int().min(1).max(120).optional(),
 });
 router.put(
   '/',

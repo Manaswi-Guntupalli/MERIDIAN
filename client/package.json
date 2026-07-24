@@ -12,6 +12,7 @@
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
     "@tanstack/react-query": "^5.62.7",
+    "@types/qrcode": "^1.5.6",
     "@vladmandic/face-api": "^1.7.15",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
@@ -19,6 +20,7 @@
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.468.0",
     "meridian": "file:..",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.54.2",

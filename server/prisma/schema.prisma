@@ -42,9 +42,9 @@ model School {
   predictions   Prediction[]
   emergencies   EmergencyIncident[]
   settings      Setting[]
-  rfidCards         RFIDCard[]
-  rfidReaders       RFIDReader[]
-  attendanceEvents  AttendanceEvent[]
+  attendanceSessions AttendanceSession[]
+  attendanceEvents   AttendanceEvent[]
+  faceEnrollments    FaceEnrollment[]
 }
 
 // ─────────────────────────────  AUTH  ──────────────────────────────
@@ -111,6 +111,7 @@ model Teacher {
   slots       TimetableSlot[]
   substitutes Substitution[]  @relation("SubTeacher")
   absences    StaffAbsence[]
+  attendanceSessions AttendanceSession[]
 }
 
 model Student {
@@ -148,8 +149,8 @@ model Student {
   attendance       Attendance[]
   fees             Fee[]
   parents          StudentParent[]
-  rfidCards        RFIDCard[]
-  attendanceEvents AttendanceEvent[]
+  attendanceEvents        AttendanceEvent[]
+  attendanceVerifications AttendanceVerification[]
 }
 
 model Parent {
@@ -192,6 +193,7 @@ model Class {
   attendance Attendance[]
   slots      TimetableSlot[]
   subjectPlans ClassSubjectPlan[]
+  attendanceSessions AttendanceSession[]
 
   @@unique([schoolId, grade, section])
 }
@@ -209,6 +211,7 @@ model Subject {
 
   slots TimetableSlot[]
   classPlans ClassSubjectPlan[]
+  attendanceSessions AttendanceSession[]
 
   @@unique([schoolId, code])
 }
@@ -263,102 +266,99 @@ model Attendance {
   @@index([schoolId, date])
 }
 
-// ─────────────────────────  PRESENCE · RFID  ────────────────────────
-// status ∈ ACTIVE | DISABLED | LOST | BROKEN | REPLACED
-// A student may have many cards over their lifetime (lost/replaced), but the
-// card service enforces at most one ACTIVE card per student at a time.
-model RFIDCard {
-  id        String    @id @default(cuid())
-  schoolId  String
-  school    School    @relation(fields: [schoolId], references: [id])
-  uid       String                                 // physical tag UID
-  studentId String
-  student   Student   @relation(fields: [studentId], references: [id])
-  status    String    @default("ACTIVE")
-  issuedDate    DateTime  @default(now())
-  deactivatedAt DateTime?
-  // Points at the NEW card that replaced this one (old.replacedByCard -> new).
-  // Unique so the back-relation is a single card, not a list — a card can
-  // only ever be "the replacement" for one predecessor.
-  replacedByCardId String?   @unique
-  replacedByCard   RFIDCard? @relation("CardReplacement", fields: [replacedByCardId], references: [id])
-  replacedFromCard RFIDCard? @relation("CardReplacement")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+// ─────────────────────  PRESENCE · ATTENDANCE SESSIONS  ─────────────
+// A teacher opens attendance for a class period. Face recognition is the
+// PRIMARY identity method; the session QR is the verification / fallback.
+// No attendance can be marked outside an ACTIVE, unexpired session — this is
+// the anti-replay boundary. status ∈ ACTIVE | CLOSED | EXPIRED
+model AttendanceSession {
+  id          String    @id @default(cuid())
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id])
+  classId     String
+  class       Class     @relation(fields: [classId], references: [id])
+  teacherId   String
+  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+  subjectId   String?
+  subject     Subject?  @relation(fields: [subjectId], references: [id])
+  date        String                              // YYYY-MM-DD (local)
+  status      String    @default("ACTIVE")
+  startTime   DateTime  @default(now())
+  expiryTime  DateTime                            // auto-expires after this instant
+  closedAt    DateTime?
+  // Cryptographically random per-session token. The session QR encodes only
+  // { sessionId, token } and dies with the session, so a photographed QR
+  // can never be replayed against a later session.
+  sessionToken String   @unique
+  createdBy    String?                            // teacher userId (for audit)
 
-  events AttendanceEvent[]
+  verifications AttendanceVerification[]
+  events        AttendanceEvent[]
 
-  @@unique([schoolId, uid])
-  @@index([studentId])
+  @@index([schoolId, status])
+  @@index([classId, date])
 }
 
-// online is a materialized flag kept in sync by heartbeats + a periodic
-// sweep (services/presence/readers.ts) rather than computed on every read.
-// direction ∈ ENTRY | EXIT | BOTH — a gate can be wired as one-way.
-model RFIDReader {
-  id              String    @id @default(cuid())
-  schoolId        String
-  school          School    @relation(fields: [schoolId], references: [id])
-  name            String
-  location        String
-  building        String?
-  online          Boolean   @default(false)
-  firmwareVersion String?
-  lastHeartbeat   DateTime?
-  // bcrypt hash of the device secret used by authenticateReader — the
-  // plaintext key is shown to the admin exactly once, at creation/rotation.
-  apiKeyHash      String
-  direction       String    @default("BOTH")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+// One row per (session, student): the attendance STATE MACHINE.
+//   PENDING → FACE_VERIFIED → PRESENT              (face is sufficient)
+//   PENDING → QR_VERIFIED  → FACE_VERIFIED → PRESENT
+//   QR_VERIFIED at expiry → UNVERIFIED_QR          (QR alone is NOT present)
+//   QR says A but face matches B → PROXY_ATTEMPT   (no attendance, alert)
+// state ∈ PENDING | QR_VERIFIED | FACE_VERIFIED | PRESENT | PROXY_ATTEMPT | UNVERIFIED_QR | ABSENT
+model AttendanceVerification {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  state       String   @default("PENDING")
+  qrVerifiedAt    DateTime?
+  faceVerifiedAt  DateTime?
+  faceConfidence  Float?                           // cosine similarity of the winning 1:1 verify
+  faceDistance    Float?                           // 1 - similarity, the raw distance
+  threshold       Float?                           // the pass bar actually applied
+  markedPresentAt DateTime?
+  // Anti-proxy provenance: who the QR claimed vs who the face actually matched.
+  proxyClaimedStudentId String?
+  proxyMatchedName      String?
+  reason      String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
 
-  heartbeats ReaderHeartbeat[]
-  events     AttendanceEvent[]
-
-  @@index([schoolId])
+  @@unique([sessionId, studentId])
+  @@index([sessionId, state])
 }
 
-model ReaderHeartbeat {
-  id              String     @id @default(cuid())
-  readerId        String
-  reader          RFIDReader @relation(fields: [readerId], references: [id])
-  timestamp       DateTime   @default(now())
-  signal          Float?
-  firmwareVersion String?
-
-  @@index([readerId, timestamp])
-}
-
-// The append-only raw scan log — every source (RFID/MANUAL/CV) writes
-// exactly this shape via presence/engine.ts. This is what Presence's own
-// live feed, history and analytics read; the `Attendance` table above stays
-// the materialized daily view every other engine already reads, untouched.
-// source ∈ RFID | MANUAL | CV
+// The append-only raw attendance log — every identity resolution (face, QR,
+// manual) and every notable outcome writes exactly this shape via
+// presence/engine.ts. `Attendance` (daily) stays the materialized view every
+// other engine reads, untouched.
+// source ∈ FACE | QR | MANUAL
 // direction ∈ ENTRY | EXIT | REENTRY | UNKNOWN
-// verificationStatus ∈ VERIFIED | DUPLICATE | UNKNOWN | LATE | REJECTED
+// verificationStatus ∈ VERIFIED | LATE | DUPLICATE | PROXY | UNVERIFIED_QR | REJECTED
 model AttendanceEvent {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   schoolId  String
-  school    School      @relation(fields: [schoolId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
   studentId String?
-  student   Student?    @relation(fields: [studentId], references: [id])
-  cardId    String?
-  card      RFIDCard?   @relation(fields: [cardId], references: [id])
-  readerId  String?
-  reader    RFIDReader? @relation(fields: [readerId], references: [id])
+  student   Student? @relation(fields: [studentId], references: [id])
+  sessionId String?
+  session   AttendanceSession? @relation(fields: [sessionId], references: [id])
+  verificationId String?
   source    String
-  timestamp DateTime    @default(now())
-  direction String      @default("UNKNOWN")
+  timestamp DateTime @default(now())
+  direction String   @default("ENTRY")
   verificationStatus String @default("VERIFIED")
+  faceConfidence Float?
+  faceDistance   Float?
   late        Boolean @default(false)
   lateMinutes Int?
-  createdBy   String?                                // userId, when staff-originated
+  createdBy   String?                              // userId, when staff-originated
   notes       String?
 
   @@index([schoolId, timestamp])
   @@index([studentId, timestamp])
-  @@index([readerId, timestamp])
-  @@index([cardId])
+  @@index([sessionId])
 }
 
 // ──────────────────────────  LUMEN (DOCUMENTS)  ─────────────────────
@@ -796,16 +796,43 @@ model Setting {
 }
 
 // ─────────────────────  PRESENCE · FACE RECOGNITION  ────────────────
-// On-device 128-D neural face embeddings. We store ONLY the vector — never
-// a raw image — so a row can't be reverse-engineered into a child's face.
-// subjectType ∈ STUDENT | TEACHER
+// Consent-first enrollment. Biometric processing needs explicit, timestamped
+// consent (DPDP Act / GDPR-style principles), and the model version the
+// templates were captured with — so a model upgrade can never silently
+// compare vectors from incompatible spaces. subjectType ∈ STUDENT | TEACHER
+model FaceEnrollment {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  subjectType String
+  subjectId   String
+  name        String
+  model       String                          // e.g. "insightface-buffalo_l"
+  consentAt   DateTime @default(now())
+  consentBy   String?                          // staff userId who captured consent
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  embeddings  FaceEmbedding[]
+
+  @@unique([subjectType, subjectId])
+  @@index([schoolId, subjectType])
+}
+
+// A neural face embedding. We store ONLY the vector — never a raw image — so
+// a row can't be reverse-engineered into a child's face. `model` + `dim` make
+// the vector space explicit; matching refuses to compare across models.
 model FaceEmbedding {
   id           String   @id @default(cuid())
   schoolId     String
+  enrollmentId String?
+  enrollment   FaceEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
   subjectType  String
   subjectId    String                          // student.id or teacher.id
   name         String                          // cached for fast display
-  vectorString String                          // JSON array of 128 floats
+  vectorString String                          // JSON array of `dim` floats
+  model        String   @default("insightface-buffalo_l")
+  dim          Int      @default(512)
   label        String   @default("front")       // capture pose
   quality      Float    @default(0)
   createdAt    DateTime @default(now())

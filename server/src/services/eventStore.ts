@@ -112,6 +112,13 @@ const reversers: Record<string, Reverser> = {
     } else if (p.attendanceId) {
       await tx.attendance.delete({ where: { id: p.attendanceId } }).catch(() => {});
     }
+    // Session-based marks also reset their verification row so the student can
+    // be re-marked in the same session after an accidental undo.
+    if (p.verificationId) {
+      await tx.attendanceVerification
+        .update({ where: { id: p.verificationId }, data: { state: 'PENDING', markedPresentAt: null, reason: 'Attendance undone' } })
+        .catch(() => {});
+    }
   },
   FEE_PAYMENT_RECORDED: async (p, tx) => {
     if (p.paymentId) await tx.payment.delete({ where: { id: p.paymentId } }).catch(() => {});

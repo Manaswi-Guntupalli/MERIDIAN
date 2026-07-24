@@ -7,419 +7,339 @@ import { notify } from '../notifications.js';
 import { sendSms, sendEmail, sendPush } from './channels.js';
 import { emitToSchool } from '../../lib/socket.js';
 import { getPresenceSettings, minutesOfDay } from './settings.js';
-import type { AttendanceSource, Direction, ScanInput, ScanResult, VerificationStatus } from './types.js';
+import { matchFace, verifyFaceAgainst, MATCH_THRESHOLD } from '../face.js';
+import { loadActiveSession } from './session.js';
+import type { FaceEvidence, MarkResult, VerificationState } from './types.js';
 
 type Tx = Prisma.TransactionClient;
-type ReaderRow = { id: string; name: string; location: string; direction: string; online: boolean } | null;
-
 const dateStr = (d: Date) => d.toISOString().slice(0, 10);
 
-// Internal shape carried out of the transaction: the public ScanResult plus
-// the bits (deferred socket emit, reader row, CV confidence) only needed for
-// post-commit side effects (notify/emit/log), never returned to the caller.
-interface EngineOutcome extends ScanResult {
-  _emit: () => void;
-  _reader: ReaderRow;
-  _confidence?: number;
+// ─────────────────────────────────────────────────────────────────────────────
+// The Attendance Engine — the single place every identity claim (kiosk face,
+// student QR, manual mark) converges. It advances ONE AttendanceVerification
+// state machine per (session, student) and, on reaching PRESENT, writes the
+// AttendanceEvent + materialised daily Attendance + a reversible ATTENDANCE_
+// MARKED event, all in one transaction, then fires notifications post-commit.
+//
+// Face is sufficient (FACE → PRESENT). QR alone is not (QR → PENDING, then
+// UNVERIFIED_QR at expiry). QR claiming A while the face is B → PROXY_ATTEMPT:
+// no attendance, a security alert, and a FaceEvent for the review queue.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Deferred {
+  emit: () => void;
+  post: () => Promise<void>;
+}
+
+async function finalizePresent(
+  tx: Tx,
+  session: { id: string; schoolId: string },
+  verificationId: string,
+  student: { id: string; name: string; rollNo: number; classId: string | null },
+  source: 'FACE' | 'QR' | 'MANUAL',
+  now: Date,
+  face: FaceEvidence | null,
+  actorId?: string,
+): Promise<{ result: MarkResult; deferred: Deferred }> {
+  const settings = await getPresenceSettings(session.schoolId);
+  const threshold = minutesOfDay(settings.schoolStartTime) + settings.lateGraceMinutes;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const late = nowMinutes > threshold;
+  const lateMinutes = late ? nowMinutes - threshold : null;
+  const status = late ? 'LATE' : 'VERIFIED';
+
+  await tx.attendanceVerification.update({
+    where: { id: verificationId },
+    data: {
+      state: 'PRESENT',
+      markedPresentAt: now,
+      ...(face ? { faceVerifiedAt: now, faceConfidence: face.confidence, faceDistance: face.distance, threshold: face.threshold } : {}),
+      reason: face ? `Face verified ${(face.confidence * 100).toFixed(0)}%` : source === 'MANUAL' ? 'Marked present by staff' : undefined,
+    },
+  });
+
+  const proof = face ? `face verified ${(face.confidence * 100).toFixed(0)}%${face.samples ? ` (${face.samples} template${face.samples === 1 ? '' : 's'})` : ''}` : source === 'MANUAL' ? 'manual mark' : null;
+  const event = await tx.attendanceEvent.create({
+    data: {
+      schoolId: session.schoolId,
+      studentId: student.id,
+      sessionId: session.id,
+      verificationId,
+      source,
+      timestamp: now,
+      direction: 'ENTRY',
+      verificationStatus: status,
+      faceConfidence: face?.confidence,
+      faceDistance: face?.distance,
+      late,
+      lateMinutes,
+      createdBy: actorId,
+      notes: proof,
+    },
+  });
+
+  // Materialised daily view — the row every other engine reads.
+  const date = dateStr(now);
+  const attendance = await tx.attendance.upsert({
+    where: { studentId_date: { studentId: student.id, date } },
+    create: { schoolId: session.schoolId, studentId: student.id, classId: student.classId!, date, status: late ? 'LATE' : 'PRESENT', source, confidence: face?.confidence, markedById: actorId },
+    update: { status: late ? 'LATE' : 'PRESENT', source, confidence: face?.confidence },
+  });
+
+  // Reversible: undoing this restores the prior daily status AND resets the
+  // verification row (see eventStore reverser for ATTENDANCE_MARKED).
+  const recorded = await recordEvent(
+    {
+      schoolId: session.schoolId,
+      type: 'ATTENDANCE_MARKED',
+      aggregate: 'Attendance',
+      aggregateId: attendance.id,
+      payload: { attendanceId: attendance.id, verificationId, eventId: event.id, studentId: student.id, studentName: student.name, source, status, previousStatus: null },
+      actorId,
+      reversible: true,
+    },
+    tx,
+  );
+
+  const result: MarkResult = {
+    state: 'PRESENT',
+    studentId: student.id,
+    studentName: student.name,
+    sessionId: session.id,
+    reason: late ? `Present (late, ${lateMinutes} min)` : 'Present',
+    face: face ?? undefined,
+    eventId: event.id,
+  };
+
+  const deferred: Deferred = {
+    emit: () => {
+      recorded.emit();
+      emitToSchool(session.schoolId, 'attendance:verification', { sessionId: session.id, studentId: student.id, state: 'PRESENT', status, confidence: face?.confidence ?? null });
+    },
+    post: async () => {
+      await logAI({
+        schoolId: session.schoolId,
+        engine: 'PRESENCE',
+        action: `${source} attendance — ${status.toLowerCase()}`,
+        reason: face ? `Face matched ${student.name} at ${(face.confidence * 100).toFixed(1)}% ≥ ${(face.threshold * 100).toFixed(0)}% threshold (distance ${face.distance.toFixed(3)})` : `${source} attendance recorded`,
+        confidence: face?.confidence ?? 1,
+        input: { sessionId: session.id, source, threshold: face?.threshold },
+        output: { studentId: student.id, status, distance: face?.distance },
+        actorId,
+      });
+      await notifyParents(session.schoolId, student, late, lateMinutes, now);
+    },
+  };
+  return { result, deferred };
+}
+
+async function recordProxy(
+  tx: Tx,
+  session: { id: string; schoolId: string },
+  verificationId: string,
+  claim: { id: string; name: string },
+  face: FaceEvidence,
+  now: Date,
+): Promise<{ result: MarkResult; deferred: Deferred }> {
+  const impostor = face.matchedName && face.matchedSubjectId !== claim.id ? ` — the face matched ${face.matchedName}` : '';
+  const reason = `QR claimed ${claim.name}, but the face did not match (similarity ${(face.confidence * 100).toFixed(0)}% < ${(face.threshold * 100).toFixed(0)}%)${impostor}`;
+
+  await tx.attendanceVerification.update({
+    where: { id: verificationId },
+    data: { state: 'PROXY_ATTEMPT', proxyClaimedStudentId: claim.id, proxyMatchedName: face.matchedName ?? null, faceConfidence: face.confidence, faceDistance: face.distance, threshold: face.threshold, reason },
+  });
+  const event = await tx.attendanceEvent.create({
+    data: { schoolId: session.schoolId, studentId: claim.id, sessionId: session.id, verificationId, source: 'QR', timestamp: now, direction: 'UNKNOWN', verificationStatus: 'PROXY', faceConfidence: face.confidence, faceDistance: face.distance, notes: reason },
+  });
+  const recorded = await recordEvent(
+    { schoolId: session.schoolId, type: 'PROXY_ATTEMPT', aggregate: 'AttendanceVerification', aggregateId: verificationId, payload: { verificationId, eventId: event.id, claimedStudentId: claim.id, claimedName: claim.name, matchedName: face.matchedName, similarity: face.confidence }, reversible: false },
+    tx,
+  );
+  await tx.faceEvent.create({ data: { schoolId: session.schoolId, kind: 'PROXY', confidence: face.confidence, cameraId: 'attendance-session', note: reason } });
+
+  const result: MarkResult = { state: 'PROXY_ATTEMPT', studentId: claim.id, studentName: claim.name, claimedName: claim.name, sessionId: session.id, reason, face };
+  const deferred: Deferred = {
+    emit: () => {
+      recorded.emit();
+      emitToSchool(session.schoolId, 'attendance:verification', { sessionId: session.id, studentId: claim.id, state: 'PROXY_ATTEMPT', reason });
+    },
+    post: async () => {
+      await logAI({ schoolId: session.schoolId, engine: 'PRESENCE', action: 'QR attendance — proxy blocked', reason, confidence: face.confidence, input: { sessionId: session.id, claimedStudentId: claim.id }, output: { blocked: true, matchedName: face.matchedName } });
+      await notifyAdminsProxy(session.schoolId, reason);
+    },
+  };
+  return { result, deferred };
+}
+
+// ── Public entry points ──────────────────────────────────────────────────
+
+export interface FaceMarkInput {
+  schoolId: string;
+  sessionId: string;
+  embedding: number[]; // 512-D descriptor from the face service
+  detScore?: number;
+  actorId?: string;
 }
 
 /**
- * The Presence Engine — the single place every attendance-producing source
- * (RFID reader, RFID simulator, manual mark, face-recognition
- * match) converges. Validates, decides duplicate/late/direction, and writes
- * the AttendanceEvent + materialized Attendance row in one transaction, per
- * the "everything happens inside one transaction" requirement.
- *
- * Every lookup below runs inside the same transaction as the writes, so two
- * near-simultaneous taps of the same card can't both read "no recent event"
- * and both slip past the duplicate check.
- *
- * "Card assigned" (spec's validation step) is enforced structurally —
- * RFIDCard.studentId is a required column, so a card cannot exist unassigned.
+ * Kiosk face path (PRIMARY). 1:N recognise the descriptor, confirm the person
+ * is on THIS session's register, and mark them present. Face is the identity,
+ * so this path can't be a proxy — but a face not on the register is reported,
+ * not marked.
  */
-export async function processScan(input: ScanInput): Promise<ScanResult> {
-  const { schoolId, source } = input;
-  const now = input.simulateAt ?? new Date();
+export async function markFace(input: FaceMarkInput): Promise<MarkResult> {
+  if (!Array.isArray(input.embedding) || !input.embedding.length) throw badRequest('markFace requires a face embedding');
+  const session = await loadActiveSession(input.schoolId, input.sessionId);
+  if (session.status !== 'ACTIVE') throw badRequest('This attendance session is no longer active.');
 
-  if ((source === 'RFID' || source === 'FUSION') && (!input.readerId || !input.cardUid)) {
-    throw badRequest(`${source} scans require both readerId and cardUid`);
+  const match = await matchFace(input.schoolId, input.embedding, 'STUDENT');
+  if (!match.matched || !match.subjectId) {
+    await prisma.faceEvent.create({ data: { schoolId: input.schoolId, kind: 'UNKNOWN', confidence: match.confidence, cameraId: 'attendance-session', note: `Unrecognised face in ${session.id} (best ${(match.confidence * 100).toFixed(0)}%)` } });
+    return { state: 'ABSENT', studentId: '', studentName: 'Unknown', sessionId: session.id, reason: `No confident match (best ${(match.confidence * 100).toFixed(0)}% < ${(MATCH_THRESHOLD * 100).toFixed(0)}%)` };
   }
-  if ((source === 'MANUAL' || source === 'CV') && !input.studentId) {
-    throw badRequest(`${source} attendance requires studentId`);
+
+  const face: FaceEvidence = { confidence: match.confidence, distance: Math.round((1 - match.confidence) * 1000) / 1000, threshold: MATCH_THRESHOLD, matchedName: match.name, matchedSubjectId: match.subjectId };
+  const outcome = await prisma.$transaction(async (tx) => {
+    const verification = await tx.attendanceVerification.findUnique({ where: { sessionId_studentId: { sessionId: session.id, studentId: match.subjectId! } }, include: { student: true } });
+    if (!verification) {
+      // Recognised, but not a student on this class's register.
+      return { skip: true as const, name: match.name };
+    }
+    if (verification.state === 'PRESENT') {
+      return { already: true as const, name: verification.student.name };
+    }
+    const { result, deferred } = await finalizePresent(tx, session, verification.id, verification.student, 'FACE', new Date(), face, input.actorId);
+    return { result, deferred };
+  });
+
+  if ('skip' in outcome) return { state: 'ABSENT', studentId: match.subjectId ?? "", studentName: match.name ?? 'Unknown', sessionId: session.id, reason: `${match.name} is recognised but not on this class's register` };
+  if ('already' in outcome) return { state: 'PRESENT', studentId: match.subjectId ?? "", studentName: outcome.name ?? "Student", sessionId: session.id, reason: 'Already marked present' };
+  outcome.deferred.emit();
+  await outcome.deferred.post();
+  return outcome.result;
+}
+
+export interface QrMarkInput {
+  schoolId: string;
+  sessionId: string;
+  token: string;
+  studentId: string; // resolved from the student's JWT (or provided by the simulator)
+  embedding?: number[]; // face captured alongside the QR scan (phone front camera)
+  actorId?: string;
+}
+
+/**
+ * QR path (VERIFICATION / fallback). Validates the session token, confirms the
+ * claiming student is on the register, and:
+ *   · face provided & verifies (1:1) → PRESENT (both factors)
+ *   · face provided & fails         → PROXY_ATTEMPT (claimed A, face is B)
+ *   · no face                       → QR_VERIFIED (PENDING until expiry, then
+ *                                     UNVERIFIED_QR — QR alone is never present)
+ */
+export async function markQr(input: QrMarkInput): Promise<MarkResult> {
+  const session = await loadActiveSession(input.schoolId, input.sessionId);
+  if (session.status !== 'ACTIVE') throw badRequest('This attendance session is no longer active.');
+  if (session.sessionToken !== input.token) throw badRequest('Invalid or replayed QR token.');
+  if (session.expiryTime.getTime() <= Date.now()) throw badRequest('This QR has expired.');
+
+  // 1:1 verify (if a face came with the scan) — done outside the tx (read-only).
+  let face: FaceEvidence | null = null;
+  if (input.embedding?.length) {
+    const v = await verifyFaceAgainst(input.schoolId, 'STUDENT', input.studentId, input.embedding);
+    if (v.samples > 0) {
+      face = { confidence: v.similarity, distance: Math.round((1 - v.similarity) * 1000) / 1000, threshold: v.threshold, samples: v.samples };
+      if (v.similarity < v.threshold) {
+        // Who is it actually? (1:N, for an honest proxy reason.)
+        const who = await matchFace(input.schoolId, input.embedding, 'STUDENT');
+        face.matchedName = who.matched ? who.name : null;
+        face.matchedSubjectId = who.matched ? who.subjectId : null;
+      }
+    }
   }
 
-  const settings = await getPresenceSettings(schoolId);
+  const outcome = await prisma.$transaction(async (tx) => {
+    const verification = await tx.attendanceVerification.findUnique({ where: { sessionId_studentId: { sessionId: session.id, studentId: input.studentId } }, include: { student: true } });
+    if (!verification) throw badRequest('You are not on this class\'s attendance register.');
+    const student = verification.student;
+    if (verification.state === 'PRESENT') return { already: true as const, name: student.name };
 
-  const outcome = await prisma.$transaction(async (tx): Promise<EngineOutcome> => {
-    let reader: ReaderRow = null;
-    if (input.readerId) {
-      const row = await tx.rFIDReader.findFirst({ where: { id: input.readerId, schoolId } });
-      if (!row) throw badRequest('Unknown reader'); // malformed request — nothing written
-      reader = row;
-      if ((source === 'RFID' || source === 'FUSION') && !row.online) {
-        return writeOutcome(tx, { schoolId, source, readerId: row.id, verificationStatus: 'REJECTED', reason: 'Reader is offline', timestamp: now });
-      }
+    // Face present but does NOT match the claiming student → proxy.
+    if (face && face.confidence < face.threshold) {
+      return await recordProxy(tx, session, verification.id, { id: student.id, name: student.name }, face, new Date());
     }
-
-    let card: { id: string; status: string; studentId: string } | null = null;
-    let studentId = input.studentId ?? null;
-
-    if (source === 'RFID' || source === 'FUSION') {
-      card = await tx.rFIDCard.findFirst({ where: { schoolId, uid: input.cardUid! } });
-      if (!card) {
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader!.id,
-          verificationStatus: 'UNKNOWN',
-          reason: `Unrecognized card UID "${input.cardUid}"`,
-          timestamp: now,
-          notes: input.cardUid,
-        });
-      }
-      if (card.status !== 'ACTIVE') {
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader!.id,
-          cardId: card.id,
-          studentId: card.studentId,
-          verificationStatus: 'REJECTED',
-          reason: `Card is ${card.status.toLowerCase()}`,
-          timestamp: now,
-        });
-      }
-      studentId = card.studentId;
+    // Face present and verifies → both factors → present.
+    if (face && face.confidence >= face.threshold) {
+      return await finalizePresent(tx, session, verification.id, student, 'QR', new Date(), face, input.actorId);
     }
-
-    const student = studentId ? await tx.student.findFirst({ where: { id: studentId, schoolId } }) : null;
-    if (!student) {
-      return writeOutcome(tx, { schoolId, source, readerId: reader?.id, cardId: card?.id, verificationStatus: 'REJECTED', reason: 'Student not found in this school', timestamp: now });
-    }
-    if (!student.active) {
-      return writeOutcome(tx, { schoolId, source, readerId: reader?.id, cardId: card?.id, studentId: student.id, verificationStatus: 'REJECTED', reason: 'Student is not active', timestamp: now });
-    }
-    if (!student.classId) {
-      return writeOutcome(tx, { schoolId, source, readerId: reader?.id, cardId: card?.id, studentId: student.id, verificationStatus: 'REJECTED', reason: 'Student has no class assigned', timestamp: now });
-    }
-
-    // ── Fusion gate (anti-proxy) — the card CLAIMED this student; the face
-    //    must CONFIRM it. A failed 1:1 verify is written as PROXY, with who
-    //    the face actually matched when we know. This runs before the
-    //    duplicate check so a blocked proxy never consumes the real
-    //    student's scan window. ──
-    if (source === 'FUSION') {
-      const fu = input.fusion;
-      if (!fu) throw badRequest('FUSION scans require the face verification block');
-      if (fu.samples === 0 && fu.required) {
-        // Strict gate: attendance needs the card AND a verified face. An
-        // un-enrolled cardholder cannot pass — audited as a rejection, with
-        // the fix spelled out, never silently downgraded.
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader?.id,
-          cardId: card?.id,
-          studentId: student.id,
-          verificationStatus: 'REJECTED',
-          reason: `${student.name} has no enrolled face — this gate requires card + face. Enroll under Face → Enrollment.`,
-          timestamp: now,
-        });
-      }
-      if (fu.samples > 0 && fu.similarity < fu.threshold) {
-        const imposter = fu.matchedSubjectId && fu.matchedSubjectId !== student.id && fu.matchedName ? ` — face instead matched ${fu.matchedName}` : '';
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader?.id,
-          cardId: card?.id,
-          studentId: student.id,
-          verificationStatus: 'PROXY',
-          reason: `Face does not match cardholder ${student.name} (similarity ${(fu.similarity * 100).toFixed(0)}% < ${(fu.threshold * 100).toFixed(0)}%)${imposter}`,
-          timestamp: now,
-        });
-      }
-      // samples === 0 means the student has no enrolled face — the route
-      // downgrades to RFID before reaching here, so this is a safety net.
-    }
-
-    // Duplicate protection — a MANUAL correction is always an intentional
-    // staff decision, never an accidental double-tap, so it skips this
-    // window entirely. RFID/CV all share the same check.
-    if (source !== 'MANUAL') {
-      const windowStart = new Date(now.getTime() - settings.duplicateWindowSeconds * 1000);
-      const recent = await tx.attendanceEvent.findFirst({
-        where: { schoolId, studentId: student.id, verificationStatus: { in: ['VERIFIED', 'LATE'] }, timestamp: { gte: windowStart, lte: now } },
-        orderBy: { timestamp: 'desc' },
-      });
-      if (recent) {
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader?.id,
-          cardId: card?.id,
-          studentId: student.id,
-          verificationStatus: 'DUPLICATE',
-          reason: `Already scanned ${Math.round((now.getTime() - recent.timestamp.getTime()) / 1000)}s ago`,
-          timestamp: now,
-        });
-      }
-    }
-
-    // Direction: explicit override (constrained by a one-way reader), a
-    // fixed-direction reader, or inferred from today's last verified event.
-    let direction: Direction;
-    if (input.direction) {
-      if (reader && reader.direction !== 'BOTH' && reader.direction !== input.direction) {
-        return writeOutcome(tx, {
-          schoolId,
-          source,
-          readerId: reader.id,
-          cardId: card?.id,
-          studentId: student.id,
-          verificationStatus: 'REJECTED',
-          reason: `This reader is configured for ${reader.direction} only`,
-          timestamp: now,
-        });
-      }
-      direction = input.direction;
-    } else if (reader && reader.direction !== 'BOTH') {
-      direction = reader.direction as Direction;
-    } else {
-      const today = dateStr(now);
-      const last = await tx.attendanceEvent.findFirst({
-        where: { schoolId, studentId: student.id, verificationStatus: { in: ['VERIFIED', 'LATE'] }, timestamp: { gte: new Date(`${today}T00:00:00`) } },
-        orderBy: { timestamp: 'desc' },
-      });
-      direction = !last ? 'ENTRY' : last.direction === 'EXIT' ? 'REENTRY' : 'EXIT';
-    }
-
-    // Late policy applies only to the day's opening entry.
-    let late = false;
-    let lateMinutes: number | null = null;
-    if (direction === 'ENTRY') {
-      const threshold = minutesOfDay(settings.schoolStartTime) + settings.lateGraceMinutes;
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
-      if (nowMinutes > threshold) {
-        late = true;
-        lateMinutes = nowMinutes - threshold;
-      }
-    }
-
-    const verificationStatus: VerificationStatus = late ? 'LATE' : 'VERIFIED';
-
-    // A verified fusion scan records the proof in its own notes — the event
-    // row itself says the face confirmed the cardholder.
-    const fusionNote =
-      source === 'FUSION' && input.fusion
-        ? `face verified ${(input.fusion.similarity * 100).toFixed(0)}% (${input.fusion.samples} template${input.fusion.samples === 1 ? '' : 's'})`
-        : null;
-    const event = await tx.attendanceEvent.create({
-      data: {
-        schoolId,
-        studentId: student.id,
-        cardId: card?.id,
-        readerId: reader?.id,
-        source,
-        timestamp: now,
-        direction,
-        verificationStatus,
-        late,
-        lateMinutes,
-        createdBy: input.createdBy,
-        notes: fusionNote ? [input.notes, fusionNote].filter(Boolean).join(' · ') : input.notes,
-      },
-    });
-
-    // Materialized daily view — only entry-shaped directions mark presence;
-    // an EXIT never un-marks a day already recorded present.
-    let attendanceId: string | undefined;
-    if (direction === 'ENTRY' || direction === 'REENTRY') {
-      const date = dateStr(now);
-      const attendanceRecord = await tx.attendance.upsert({
-        where: { studentId_date: { studentId: student.id, date } },
-        create: {
-          schoolId,
-          studentId: student.id,
-          classId: student.classId,
-          date,
-          status: late ? 'LATE' : 'PRESENT',
-          source,
-          confidence: input.confidence,
-          markedById: input.createdBy,
-        },
-        update: { status: late ? 'LATE' : 'PRESENT', source, confidence: input.confidence },
-      });
-      attendanceId = attendanceRecord.id;
-    }
-
-    const recorded = await recordEvent(
-      {
-        schoolId,
-        type: 'ATTENDANCE_EVENT_RECORDED',
-        aggregate: 'AttendanceEvent',
-        aggregateId: event.id,
-        payload: { eventId: event.id, studentId: student.id, studentName: student.name, source, direction, verificationStatus, late, lateMinutes, attendanceId },
-        actorId: input.createdBy,
-        actorName: reader ? `${reader.name} (${source})` : undefined,
-        reversible: false,
-      },
-      tx,
-    );
-
+    // QR only → verified but pending the face.
+    await tx.attendanceVerification.update({ where: { id: verification.id }, data: { state: 'QR_VERIFIED', qrVerifiedAt: new Date(), reason: 'QR verified — awaiting face' } });
+    await recordEvent({ schoolId: session.schoolId, type: 'QR_VERIFIED', aggregate: 'AttendanceVerification', aggregateId: verification.id, payload: { verificationId: verification.id, studentId: student.id }, actorId: input.actorId, reversible: false }, tx);
     return {
-      status: verificationStatus,
-      eventId: event.id,
-      direction,
-      late,
-      lateMinutes,
-      timestamp: event.timestamp,
-      student: { id: student.id, name: student.name, rollNo: student.rollNo },
-      _emit: recorded.emit,
-      _reader: reader,
-      _confidence: input.confidence,
+      pending: true as const,
+      result: { state: 'QR_VERIFIED' as VerificationState, studentId: student.id, studentName: student.name, sessionId: session.id, reason: 'QR verified — show your face to complete attendance' },
     };
   });
 
-  const { _emit, _reader, _confidence, ...scanResult } = outcome;
-  _emit();
-
-  emitToSchool(schoolId, 'presence:event', { ...scanResult, readerName: _reader?.name, readerLocation: _reader?.location });
-
-  await logAI({
-    schoolId,
-    engine: 'PRESENCE',
-    action: `${source} ${scanResult.direction.toLowerCase()} — ${scanResult.status.toLowerCase()}`,
-    reason: scanResult.reason ?? `${source} scan resolved and recorded`,
-    confidence: source === 'CV' || source === 'FUSION' ? _confidence ?? 0.9 : 1,
-    input: { source, readerId: input.readerId, cardUid: input.cardUid },
-    output: { studentId: scanResult.student?.id, status: scanResult.status, direction: scanResult.direction },
-    actorId: input.createdBy,
-  });
-
-  if (scanResult.status === 'VERIFIED' || scanResult.status === 'LATE') {
-    await notifyParents(schoolId, scanResult, _reader);
-  } else if (scanResult.status === 'UNKNOWN') {
-    await notifyAdminsUnknownCard(schoolId, _reader, scanResult.reason);
-  } else if (scanResult.status === 'PROXY') {
-    // A blocked proxy attempt is a security incident, not attendance noise:
-    // log it in the face-event review queue and alert every admin.
-    await prisma.faceEvent.create({
-      data: { schoolId, kind: 'PROXY', confidence: input.fusion?.similarity ?? 0, cameraId: _reader?.name ?? 'gate', note: scanResult.reason },
-    });
-    await notifyAdminsProxy(schoolId, _reader, scanResult.reason);
+  if ('already' in outcome) return { state: 'PRESENT', studentId: input.studentId, studentName: outcome.name ?? "Student", sessionId: session.id, reason: 'Already marked present' };
+  if ('pending' in outcome) {
+    emitToSchool(session.schoolId, 'attendance:verification', { sessionId: session.id, studentId: input.studentId, state: 'QR_VERIFIED' });
+    return outcome.result;
   }
-
-  return scanResult;
+  outcome.deferred.emit();
+  await outcome.deferred.post();
+  return outcome.result;
 }
 
-async function notifyAdminsProxy(schoolId: string, reader: ReaderRow, reason?: string) {
+export interface ManualMarkInput {
+  schoolId: string;
+  sessionId: string;
+  studentId: string;
+  actorId?: string;
+}
+
+/** Staff override — a teacher marks a student present by hand (audited). */
+export async function markManual(input: ManualMarkInput): Promise<MarkResult> {
+  const session = await loadActiveSession(input.schoolId, input.sessionId);
+  if (session.status !== 'ACTIVE') throw badRequest('This attendance session is no longer active.');
+  const outcome = await prisma.$transaction(async (tx) => {
+    const verification = await tx.attendanceVerification.findUnique({ where: { sessionId_studentId: { sessionId: session.id, studentId: input.studentId } }, include: { student: true } });
+    if (!verification) throw badRequest('That student is not on this class\'s register.');
+    if (verification.state === 'PRESENT') return { already: true as const, name: verification.student.name };
+    return await finalizePresent(tx, session, verification.id, verification.student, 'MANUAL', new Date(), null, input.actorId);
+  });
+  if ('already' in outcome) return { state: 'PRESENT', studentId: input.studentId, studentName: outcome.name ?? "Student", sessionId: session.id, reason: 'Already marked present' };
+  outcome.deferred.emit();
+  await outcome.deferred.post();
+  return outcome.result;
+}
+
+// ── notifications ──────────────────────────────────────────────────────────
+
+async function notifyParents(schoolId: string, student: { id: string; name: string }, late: boolean, lateMinutes: number | null, now: Date) {
+  const links = await prisma.studentParent.findMany({ where: { studentId: student.id }, include: { parent: { include: { user: true } } } });
+  const timeLabel = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const lateNote = late ? ` (${lateMinutes} min late)` : '';
+  const body = `${student.name} was marked present at ${timeLabel}${lateNote}.`;
+  for (const link of links) {
+    await notify({ schoolId, userId: link.parent.userId, title: `${student.name} is present`, body, severity: late ? 'WARNING' : 'SUCCESS', category: 'ATTENDANCE' });
+    const contact = link.parent.user;
+    if (contact.phone) await sendSms({ schoolId, to: contact.phone, title: `${student.name} is present`, body });
+    if (contact.email) await sendEmail({ schoolId, to: contact.email, title: `${student.name} is present`, body });
+    await sendPush({ schoolId, to: contact.id, title: `${student.name} is present`, body });
+  }
+}
+
+async function notifyAdminsProxy(schoolId: string, reason: string) {
   const admins = await prisma.user.findMany({ where: { schoolId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'] }, active: true } });
-  const place = reader ? ` at ${reader.location} (${reader.name})` : '';
   for (const admin of admins) {
     await notify({
       schoolId,
       userId: admin.id,
       title: 'Possible proxy attendance blocked',
-      body: `${reason ?? 'Face did not match the cardholder'}${place}. The tap was rejected and no attendance was recorded.`,
+      body: `${reason}. No attendance was recorded.`,
       severity: 'CRITICAL',
       category: 'SECURITY',
       action: { href: '/presence/activity?status=PROXY' },
-    });
-  }
-}
-
-// Writes a non-success outcome (REJECTED / UNKNOWN / DUPLICATE) as its own
-// AttendanceEvent row — "audit every action" means rejections stay visible
-// to admins instead of being silently dropped.
-async function writeOutcome(
-  tx: Tx,
-  args: {
-    schoolId: string;
-    source: AttendanceSource;
-    readerId?: string;
-    cardId?: string;
-    studentId?: string | null;
-    verificationStatus: 'REJECTED' | 'UNKNOWN' | 'DUPLICATE' | 'PROXY';
-    reason: string;
-    timestamp: Date;
-    notes?: string;
-  },
-): Promise<EngineOutcome> {
-  const event = await tx.attendanceEvent.create({
-    data: {
-      schoolId: args.schoolId,
-      studentId: args.studentId ?? undefined,
-      cardId: args.cardId,
-      readerId: args.readerId,
-      source: args.source,
-      timestamp: args.timestamp,
-      direction: 'UNKNOWN',
-      verificationStatus: args.verificationStatus,
-      notes: args.notes ?? args.reason,
-    },
-  });
-
-  const student = args.studentId ? await tx.student.findFirst({ where: { id: args.studentId, schoolId: args.schoolId } }) : null;
-  const reader = args.readerId ? await tx.rFIDReader.findFirst({ where: { id: args.readerId } }) : null;
-
-  const recorded = await recordEvent(
-    {
-      schoolId: args.schoolId,
-      type: 'ATTENDANCE_EVENT_RECORDED',
-      aggregate: 'AttendanceEvent',
-      aggregateId: event.id,
-      payload: { eventId: event.id, verificationStatus: args.verificationStatus, reason: args.reason, source: args.source },
-      reversible: false,
-    },
-    tx,
-  );
-
-  return {
-    status: args.verificationStatus,
-    eventId: event.id,
-    direction: 'UNKNOWN',
-    late: false,
-    lateMinutes: null,
-    timestamp: event.timestamp,
-    reason: args.reason,
-    student: student ? { id: student.id, name: student.name, rollNo: student.rollNo } : undefined,
-    _emit: recorded.emit,
-    _reader: reader,
-    _confidence: undefined,
-  };
-}
-
-async function notifyParents(schoolId: string, result: ScanResult, reader: ReaderRow) {
-  if (!result.student) return;
-  const links = await prisma.studentParent.findMany({ where: { studentId: result.student.id }, include: { parent: { include: { user: true } } } });
-  const timeLabel = result.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  const place = reader ? ` through ${reader.location}` : '';
-  const verb = result.direction === 'EXIT' ? 'exited' : 'entered';
-  const lateNote = result.late ? ` (${result.lateMinutes} min late)` : '';
-  const body = `${result.student.name} ${verb} school at ${timeLabel}${place}${lateNote}.`;
-
-  for (const link of links) {
-    await notify({ schoolId, userId: link.parent.userId, title: `${result.student.name} ${verb} school`, body, severity: result.late ? 'WARNING' : 'SUCCESS', category: 'ATTENDANCE' });
-    const contact = link.parent.user;
-    if (contact.phone) await sendSms({ schoolId, to: contact.phone, title: `${result.student.name} ${verb} school`, body });
-    if (contact.email) await sendEmail({ schoolId, to: contact.email, title: `${result.student.name} ${verb} school`, body });
-    await sendPush({ schoolId, to: contact.id, title: `${result.student.name} ${verb} school`, body });
-  }
-}
-
-async function notifyAdminsUnknownCard(schoolId: string, reader: ReaderRow, reason?: string) {
-  const admins = await prisma.user.findMany({ where: { schoolId, role: { in: ['SUPER_ADMIN', 'ADMIN', 'PRINCIPAL'] }, active: true } });
-  const place = reader ? ` at ${reader.location} (${reader.name})` : '';
-  for (const admin of admins) {
-    await notify({
-      schoolId,
-      userId: admin.id,
-      title: 'Unrecognized card scanned',
-      body: `${reason ?? 'Unknown card'}${place}. Needs review in Presence → Unknown Cards.`,
-      severity: 'WARNING',
-      category: 'SECURITY',
-      action: { href: '/presence/activity?status=UNKNOWN' },
     });
   }
 }

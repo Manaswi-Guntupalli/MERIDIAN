@@ -64,14 +64,14 @@ export default function StudentDetail() {
             )}
           </div>
 
-          {/* RFID card */}
+          {/* Face enrollment */}
           <div className="mt-3 rounded-xl border border-line bg-ink-800/60 p-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Nfc className="h-4 w-4 text-brand-400" /> RFID card</div>
-              {s.rfidCards?.[0] ? <Badge severity="SUCCESS">{s.rfidCards[0].uid}</Badge> : <Badge>No active card</Badge>}
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Nfc className="h-4 w-4 text-brand-400" /> Face enrollment</div>
+              {s.faceEnrolled ? <Badge severity="SUCCESS">{s.faceCount ?? 0} template{(s.faceCount ?? 0) === 1 ? '' : 's'}</Badge> : <Badge>Not enrolled</Badge>}
             </div>
-            <Link to={`/presence/history?studentId=${s.id}`} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline">
-              View Presence history →
+            <Link to={`/presence/activity?studentId=${s.id}`} className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline">
+              View attendance history →
             </Link>
           </div>
         </Card>

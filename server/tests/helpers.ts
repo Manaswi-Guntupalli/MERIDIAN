@@ -41,16 +41,6 @@ export async function createFixture() {
   const parent = await prisma.parent.create({ data: { schoolId: school.id, userId: parentUser.id, relation: 'Guardian' } });
   await prisma.studentParent.create({ data: { studentId: student.id, parentId: parent.id } });
 
-  const readerApiKey = `test-key-${suffix}`;
-  const reader = await prisma.rFIDReader.create({
-    data: { schoolId: school.id, name: `Gate ${suffix}`, location: 'Test Gate', direction: 'BOTH', online: true, lastHeartbeat: new Date(), apiKeyHash: await hashPassword(readerApiKey) },
-  });
-  const offlineReader = await prisma.rFIDReader.create({
-    data: { schoolId: school.id, name: `Offline Gate ${suffix}`, location: 'Offline Gate', direction: 'BOTH', online: false, apiKeyHash: await hashPassword('unused') },
-  });
-
-  const card = await prisma.rFIDCard.create({ data: { schoolId: school.id, studentId: student.id, uid: `UID-${suffix}-1`, status: 'ACTIVE' } });
-
   const tokenFor = (user: { id: string; role: string; name: string }) => signToken({ sub: user.id, schoolId: school.id, role: user.role, name: user.name, tv: 0 });
 
   return {
@@ -65,11 +55,38 @@ export async function createFixture() {
     studentInOtherClass,
     class: cls,
     otherClass,
-    reader,
-    readerApiKey,
-    offlineReader,
-    card,
   };
+}
+
+/** Enroll a synthetic face template for a subject (tests can't run a camera). */
+export async function enrollTestFace(schoolId: string, subjectType: 'STUDENT' | 'TEACHER', subjectId: string, name: string, vector: number[]) {
+  const enrollment = await prisma.faceEnrollment.upsert({
+    where: { subjectType_subjectId: { subjectType, subjectId } },
+    create: { schoolId, subjectType, subjectId, name, model: 'insightface-buffalo_l' },
+    update: {},
+  });
+  await prisma.faceEmbedding.create({
+    data: { schoolId, enrollmentId: enrollment.id, subjectType, subjectId, name, vectorString: JSON.stringify(vector), model: 'insightface-buffalo_l', dim: 512, label: 'front', quality: 0.9 },
+  });
+  if (subjectType === 'STUDENT') await prisma.student.update({ where: { id: subjectId }, data: { faceEnrolled: true, faceCount: 1 } });
+}
+
+/** A synthetic 512-D unit vector, seeded. */
+export function unitVector(seed: number, dim = 512): number[] {
+  const v: number[] = [];
+  let h = (seed * 2654435761) >>> 0;
+  for (let i = 0; i < dim; i++) {
+    h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + i) >>> 0;
+    v.push((h / 0xffffffff) * 2 - 1);
+  }
+  const norm = Math.hypot(...v) || 1;
+  return v.map((x) => x / norm);
+}
+
+export function recapture(vec: number[], sigma = 0.02): number[] {
+  const v = vec.map((x) => x + (Math.random() * 2 - 1) * sigma);
+  const norm = Math.hypot(...v) || 1;
+  return v.map((x) => x / norm);
 }
 
 export type Fixture = Awaited<ReturnType<typeof createFixture>>;

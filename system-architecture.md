@@ -50,9 +50,9 @@ Three processes, each with one clear ownership boundary.
 │  TanStack Query ── server-state cache (the only server truth)        │
 │  Zustand ──────── UI/session state (auth, toasts, palette)           │
 │  Socket.io client ─ pushed events invalidate query caches            │
-│  face-api.js ──── on-device detection + 128-D descriptors            │
+│  face-api.js ──── on-device detection + blink liveness (UX only)     │
 │                                                                      │
-│  Owns: presentation, camera/reader capture. Nothing authoritative.   │
+│  Owns: presentation, camera capture. Nothing authoritative.          │
 │  Never talks to Python.                                              │
 └────────────┬──────────────────────────────────┬──────────────────────┘
              │ REST /api (JWT)                  │ WebSocket (JWT)
@@ -296,36 +296,33 @@ The UI surfaces the cheapest fix and the full ranked list. These are constants, 
 
 ### 5.3 Presence — attendance integrity
 
-`processScan()` is the single ingest point for **every** source (real reader, simulator, manual mark, face kiosk, fusion gate). Its entire body is one transaction, so lookups and writes cannot interleave — two near-simultaneous taps of the same card cannot both read "no recent event" and both slip past the duplicate check.
+Attendance is **session-scoped**. A teacher opens an `AttendanceSession` for a class: it mints a cryptographically random token, seeds a `PENDING` `AttendanceVerification` per student, and auto-expires (default 5 min). *No mark exists outside an active, unexpired session* — the anti-replay boundary. `markFace` / `markQr` / `markManual` are the single ingest points; each runs in one transaction and advances the per-student state machine.
 
 ```
-reader exists? ──no──▶ 400 (malformed request; nothing written)
-   │ RFID & offline? ──▶ REJECTED "reader is offline"
-card known? ──no──▶ UNKNOWN + admin security alert
-   │ status ACTIVE? ──no──▶ REJECTED "card is lost/disabled"
-student active, has a class? ──no──▶ REJECTED (specific reason)
-   │
-FUSION? ──▶ strict gate & no enrolled face ──▶ REJECTED
-        └─▶ similarity < threshold ──▶ PROXY + FaceEvent + CRITICAL alert
-                                        (names who the face actually matched)
-duplicate within window (120 s)? ──▶ DUPLICATE (logged, never double-counted)
-   │
-direction: explicit (constrained by one-way readers) │ reader's fixed direction
-           │ inferred (no event today → ENTRY; last was EXIT → REENTRY; else EXIT)
-   │
-late policy (ENTRY only): now > start + grace → LATE with the exact minutes
-   │
-WRITE  AttendanceEvent  +  upsert Attendance (ENTRY/REENTRY only — an EXIT never
-                            un-marks a day already recorded present)
-   │
-POST-COMMIT  socket broadcast · trust ledger · notify parents / alert admins
+OPEN SESSION  → token + PENDING row per student, expires in N min
+
+markFace(session, embedding):                       ── kiosk, PRIMARY
+   1:N match (server-side, InsightFace) → student on this register?
+      confident match  → PRESENT           (face alone is sufficient)
+      no match         → ABSENT + FaceEvent(UNKNOWN)
+
+markQr(session, token, studentId, embedding?):       ── student device / fallback
+   validate token · active · not expired  (else refused — replay-proof)
+      + face verifies 1:1 vs the claimed student  → PRESENT (both factors)
+      + face is someone else (1:N)  → PROXY_ATTEMPT + FaceEvent + CRITICAL alert
+                                       (names who actually showed up)
+      + no face  → QR_VERIFIED → UNVERIFIED_QR at expiry (QR alone ≠ present)
+
+ON PRESENT  WRITE AttendanceEvent + upsert daily Attendance
+            + reversible ATTENDANCE_MARKED event  (all in one tx)
+POST-COMMIT socket broadcast · trust ledger · notify parents / alert admins
 ```
 
-Every non-success outcome is written as its own event row. *"Audit every action"* means rejections stay visible to admins instead of being silently dropped.
+Every notable outcome — present, proxy, unverified-QR — is written as its own event row. *"Audit every action"* means a blocked proxy stays visible to admins instead of being silently dropped, and a `PRESENT` mark is genuinely undoable (its reverser resets both the daily row and the verification state).
 
-**The fusion insight:** the tap supplies the *claim*; the camera supplies the *proof*. This converts face recognition from a 1:N search across the whole school (slow, error-prone at scale, privacy-hostile) into a **1:1 verification** against one student's enrolled templates — collapsing both the error rate and the compute cost, because the system never asks "who is this?", only "is this who the card says?". Only embeddings are stored; raw frames are discarded in memory. Liveness (blink detection) gates the mark.
+**The anti-proxy insight:** the QR supplies the *claim*; the live camera supplies the *proof*. This converts face recognition from a 1:N search across the whole school (slow, error-prone at scale, privacy-hostile) into a **1:1 verification** against one student's templates — collapsing both error rate and compute, because the system asks only "is this who the QR says?".
 
-**Reader health** is a materialised `online` flag kept in sync by heartbeats plus a periodic sweep, not computed on every read. Silence beyond the threshold (default 90 s) → offline → scans refused, because a dead gate cannot be trusted to report accurately.
+**Where the pixels go.** The browser detects a face for UX (bounding box, blink liveness) but sends the *frame* to Node, which forwards it to a Python **face service** (`:8020`, InsightFace 512-D ArcFace). The image is embedded in memory and discarded; only the vector is stored. This is a deliberate security choice: a browser-computed descriptor is trivially forgeable, which would defeat the whole anti-proxy design. Node keeps all matching and DB access. Enrollment is consent-first (`FaceEnrollment` carries a timestamped consent record), and un-enrolling truly erases the templates (the GDPR/DPDP erasure path).
 
 ### 5.4 Pulse — ERP & command centre
 
@@ -370,7 +367,7 @@ overall = Σ(weight × categoryScore) / Σ(weights of categories with data)
 | Finance | 0.28 | snapshot (no window) | `(1 − outstanding/billed) × 100` |
 | Timetable | 0.20 | frozen at publish time | the solver's own score for the live version |
 | Documents | 0.08 | current queue | `meanConfidence × (1 − reviewQueue/total) × 100` |
-| Operations | 0.09 | now | `readerUptime × (1 − rejectionRate, capped) × 100` |
+| Operations | 0.09 | now | `captureIntegrity × (0.6 + 0.4 × face-enrollment coverage) × 100` |
 
 A category with no data contributes nothing rather than a fake 100. Weights are overridable via `HEALTH_WEIGHTS`. **Staffing is deliberately not a category** — uncovered classes and teacher overload already surface as insights and recommendations, and scoring them again double-counted the same facts in the headline number.
 
@@ -387,13 +384,13 @@ A category with no data contributes nothing rather than a fake 100. Weights are 
 
 40 models, portable by construction: no native enums, no scalar lists — String constants and String columns, so the identical schema runs on SQLite and Postgres.
 
-**Domains:** tenancy (`School`) · identity (`User` → `Teacher`/`Student`/`Parent`, `StudentParent`) · academic (`Class`, `Subject`, `AcademicConfig`, `ClassSubjectPlan`) · scheduling (`Timetable` → `TimetableSlot`, `StaffAbsence` → `Substitution`) · attendance (`AttendanceEvent` raw + `Attendance` materialised) · hardware (`RFIDCard`, `RFIDReader`, `ReaderHeartbeat`) · documents (`Document` → `ExtractedField`/`DocumentPage`/`DocumentInsight`/`DocumentActivity`) · biometrics (`FaceEmbedding`, `FaceEvent`) · finance (`Fee` → `Payment`) · trust (`Event`, `AILog`, `AuditLog`) · ops (`Notification`/`NotificationRead`, `EmergencyIncident`/`Ack`/`Event`, `Building`/`Room`, `Setting`).
+**Domains:** tenancy (`School`) · identity (`User` → `Teacher`/`Student`/`Parent`, `StudentParent`) · academic (`Class`, `Subject`, `AcademicConfig`, `ClassSubjectPlan`) · scheduling (`Timetable` → `TimetableSlot`, `StaffAbsence` → `Substitution`) · attendance (`AttendanceSession` + `AttendanceVerification` state machine, `AttendanceEvent` raw + `Attendance` materialised) · biometrics (`FaceEnrollment` consent → `FaceEmbedding` 512-D, `FaceEvent`) · documents (`Document` → `ExtractedField`/`DocumentPage`/`DocumentInsight`/`DocumentActivity`) · biometrics (`FaceEmbedding`, `FaceEvent`) · finance (`Fee` → `Payment`) · trust (`Event`, `AILog`, `AuditLog`) · ops (`Notification`/`NotificationRead`, `EmergencyIncident`/`Ack`/`Event`, `Building`/`Room`, `Setting`).
 
 **Modelling decisions worth their reasoning:**
 
 - **Raw + materialised attendance.** `AttendanceEvent` is the append-only truth (every tap, including rejections); `Attendance` is the daily view every other engine reads. Analytics never has to re-derive a day from a scan log, and the scan log never has to be edited.
 - **`NotificationRead` as receipts.** Read state is a fact about the *reader*, not the message. A boolean on the notification meant the first person to open a school-wide announcement marked it read for everyone — observed in practice, then fixed structurally.
-- **Card replacement chain.** `replacedByCardId` is `@unique`, so the back-relation is a single card: a card can only ever be the replacement for one predecessor. Lifecycle is preserved rather than overwritten.
+- **Attendance = session + verification + event.** The mutable `AttendanceVerification` holds the per-student state machine within a session; the append-only `AttendanceEvent` logs each notable outcome; the daily `Attendance` row is the materialised view every other engine reads. Three roles, never conflated.
 - **`ExtractedField.rawValue` + crop box.** The final value, what OCR actually saw before repair, and the pixels it came from — provenance you can point at.
 - **`@map("required")` on `expected`.** The `required` → `expected` rename happened in code with zero data migration.
 - **Contact block as first-class columns** on `Student` (guardian, phone, emergency contact, address). These are what the front office dials in an emergency; they do not belong buried in extraction JSON.
@@ -414,8 +411,8 @@ A category with no data contributes nothing rather than a fake 100. Weights are 
 | **Authorization** | `authorize(...roles)` guards; 6 roles; `STAFF_ADMIN` / `STAFF` groupings |
 | **Ownership** | teachers are constrained to their own classes (`presence/authz.ts`) |
 | **Tenancy** | virtually every query is `schoolId`-scoped **from the token**, never from the body |
-| **Devices** | readers authenticate with `x-reader-key` (bcrypt-hashed at rest); the reader ID is taken from the authenticated device, never the request body |
-| **Browser can't fake hardware** | an RFID scan from a browser tab without a device key is refused — it may only submit MANUAL |
+| **Face pixels** | frames are embedded server-side in memory and discarded; only the 512-D vector is stored — never a raw image, and never a client-supplied (forgeable) descriptor |
+| **Replay-proof QR** | a session token is validated for existence, active status and expiry on every mark — a photographed QR can't be replayed against a later session |
 | **Documents at rest** | AES-256-GCM encrypted; path traversal blocked by ID validation; retention sweep for failed/abandoned uploads |
 | **Biometrics** | 128-D embeddings only, never an image; enrolment is undoable = erasure |
 | **Uploads** | magic-byte verification *before* storage; size/count/page caps |
@@ -450,8 +447,8 @@ Every degradation is explicit and visible. Nothing fails to a fabricated value.
 |---|---|
 | Intelligence engine down/slow | 15 s timeout → `{ engine: 'offline' }` → the dashboard renders an explicit offline panel. **Never a local fallback number.** |
 | No `OPENAI_API_KEY` | Copilot classification falls back to keywords; answers use templated phrasing over the same facts. Lumen's AI repair pass is skipped. |
-| RFID reader silent > 90 s | Marked offline; its scans are refused with a reason. |
-| Camera absent / face not enrolled | Strict gate refuses rather than passing on the card alone; the device path degrades to plain RFID **and says so on the event**. |
+| Face service (:8020) unreachable | The kiosk shows an explicit offline state; the Simulator still exercises every path with synthetic embeddings. Never a fabricated match. |
+| Student not enrolled / not on the register | The kiosk reports it (ABSENT / UNKNOWN FaceEvent) rather than marking the wrong person. |
 | OCR reads poorly | Low confidence → review queue with the original crop. Never a confident wrong value. |
 | Document type unidentifiable | Typed `UNKNOWN`; commit blocked until a human sets the type. |
 | No qualified substitute | The cascade reports it honestly and frees the room instead of assigning an unqualified teacher. |
@@ -483,10 +480,10 @@ Every degradation is explicit and visible. Nothing fails to a fabricated value.
 
 ## 12. Testing strategy
 
-**96 tests across 17 files**, in two layers:
+**71 tests across 12 files**, in two layers:
 
 - **Pure unit tests** (`src/services/**/*.test.ts`) — no database. The Kairos engine is tested by *independently re-auditing* its output against every hard constraint from a clean state, plus targeted tests per constraint (qualification, caps, unavailability, locks, lab starvation, subject runs). Lumen's confidence/status/policy logic and intake hardening are tested the same way.
-- **End-to-end suites** (`tests/`) — real HTTP through supertest against the real app and database: auth/RBAC boundaries, presence scan edge cases, fusion (verified / proxy / strict rejection / honest degradation), the cascade with undo, Lumen commit + class validation + **commit policy** (School A blocks, School B commits — the same document), emergency coordination.
+- **End-to-end suites** (`tests/`) — real HTTP through supertest against the real app and database: auth/RBAC boundaries, presence attendance sessions (face→present, QR-only→unverified-QR, QR+face, anti-proxy, expiry refusal, undo), the cascade with undo, Lumen commit + class validation + **commit policy** (School A blocks, School B commits — the same document), emergency coordination.
 
 Every test builds its own school-scoped fixture with a random suffix. Because virtually every query is `schoolId`-scoped, distinct fixtures never interfere despite sharing one SQLite file — no truncate-between-tests machinery is needed.
 

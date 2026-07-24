@@ -14,20 +14,19 @@ router.get(
   asyncHandler(async (req, res) => {
     if (!STAFF.includes(req.user!.role as (typeof STAFF)[number])) throw forbidden();
     const schoolId = req.user!.schoolId;
-    const { date, studentId, readerId, status, direction, limit } = req.query as Record<string, string | undefined>;
+    const { date, studentId, sessionId, status, source, limit } = req.query as Record<string, string | undefined>;
     const where: Record<string, unknown> = { schoolId };
     if (date) where.timestamp = { gte: new Date(`${date}T00:00:00`), lt: new Date(`${date}T23:59:59.999`) };
     if (studentId) where.studentId = studentId;
-    if (readerId) where.readerId = readerId;
+    if (sessionId) where.sessionId = sessionId;
     if (status) where.verificationStatus = status;
-    if (direction) where.direction = direction;
+    if (source) where.source = source;
 
     const events = await prisma.attendanceEvent.findMany({
       where,
       include: {
         student: { select: { id: true, name: true, rollNo: true, class: { select: { name: true } } } },
-        reader: { select: { id: true, name: true, location: true } },
-        card: { select: { uid: true } },
+        session: { select: { id: true, class: { select: { name: true } } } },
       },
       orderBy: { timestamp: 'desc' },
       take: Math.min(Number(limit) || 50, 200),
@@ -51,15 +50,14 @@ router.get(
     const [events, auditEvents] = await Promise.all([
       prisma.attendanceEvent.findMany({
         where: { schoolId, studentId },
-        include: { reader: { select: { name: true, location: true } }, card: { select: { uid: true } } },
+        include: { session: { select: { id: true, class: { select: { name: true } } } } },
         orderBy: { timestamp: 'desc' },
         take: 200,
       }),
-      prisma.event.findMany({ where: { schoolId, aggregate: 'AttendanceEvent' }, orderBy: { createdAt: 'desc' }, take: 500 }),
+      prisma.event.findMany({ where: { schoolId, aggregate: { in: ['Attendance', 'AttendanceVerification'] } }, orderBy: { createdAt: 'desc' }, take: 500 }),
     ]);
 
-    // Cross-reference the Trust Core event log for corrections/undo markers
-    // on this student's rows only.
+    // Cross-reference the Trust Core event log for corrections/undo markers.
     const eventIds = new Set(events.map((e) => e.id));
     const trail = auditEvents.filter((e) => eventIds.has(e.aggregateId));
 
