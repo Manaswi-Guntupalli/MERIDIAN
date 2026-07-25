@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../features/attendance/presentation/attendance_screen.dart';
 import '../../features/auth/domain/app_user.dart';
+import '../../features/copilot/presentation/copilot_screen.dart';
 import '../../features/dashboard/presentation/principal_dashboard.dart';
+import '../../features/emergency/presentation/emergency_screen.dart';
+import '../../features/kairos/presentation/kairos_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/reports/presentation/reports_screen.dart';
 import '../../features/shell/presentation/module_placeholder.dart';
+import '../../features/staff/presentation/staff_screen.dart';
+import '../../features/students/presentation/students_screen.dart';
 import '../../shared/navigation/nav_destination.dart';
 
 /// The per-role navigation map — the app's information architecture, mirroring
@@ -56,13 +63,20 @@ MDestination get _profile => _real(
 final List<MDestination> _principal = [
   _real('Dashboard', Icons.space_dashboard_outlined,
       (_) => const PrincipalDashboard(), selected: Icons.space_dashboard),
-  _todo('Attendance', Icons.fact_check_outlined, selected: Icons.fact_check, overline: 'Presence'),
-  _todo('Timetable', Icons.calendar_month_outlined, selected: Icons.calendar_month, overline: 'Kairos'),
-  _todo('Copilot', Icons.auto_awesome_outlined, selected: Icons.auto_awesome),
-  _todo('Students', Icons.school_outlined, selected: Icons.school),
-  _todo('Staff', Icons.groups_2_outlined, selected: Icons.groups_2),
-  _todo('Reports', Icons.bar_chart_outlined, selected: Icons.bar_chart, overline: 'AI Reports'),
-  _todo('Emergency', Icons.crisis_alert_outlined, selected: Icons.crisis_alert),
+  _real('Attendance', Icons.fact_check_outlined,
+      (_) => const AttendanceScreen(), selected: Icons.fact_check),
+  _real('Timetable', Icons.calendar_month_outlined,
+      (_) => const KairosScreen(), selected: Icons.calendar_month),
+  _real('Copilot', Icons.auto_awesome_outlined, (_) => const CopilotScreen(),
+      selected: Icons.auto_awesome),
+  _real('Students', Icons.school_outlined, (_) => const StudentsScreen(),
+      selected: Icons.school),
+  _real('Staff', Icons.groups_2_outlined, (_) => const StaffScreen(),
+      selected: Icons.groups_2),
+  _real('Reports', Icons.bar_chart_outlined, (_) => const ReportsScreen(),
+      selected: Icons.bar_chart),
+  _real('Emergency', Icons.crisis_alert_outlined,
+      (_) => const EmergencyScreen(), selected: Icons.crisis_alert),
   _notifications,
   _profile,
 ];

@@ -108,10 +108,14 @@ router.post(
   authorize(...STAFF_ADMIN),
   asyncHandler(async (req, res) => {
     const schoolId = req.user!.schoolId;
-    const overdue = await prisma.fee.findMany({
-      where: { schoolId, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
+    const now = Date.now();
+    const all = await prisma.fee.findMany({
+      where: { schoolId },
       include: { student: { include: { parents: { include: { parent: true } } } } },
     });
+    // Same overdue rule as the list endpoint above — the stored status would
+    // also pull in fees that are simply not due yet.
+    const overdue = all.filter((f) => f.paid < f.amount && new Date(f.dueDate).getTime() < now);
 
     let recipients = 0;
     for (const f of overdue.slice(0, 25)) {

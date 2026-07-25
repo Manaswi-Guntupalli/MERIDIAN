@@ -12,7 +12,11 @@ from datetime import datetime
 
 import pandas as pd
 
-BUCKETS = [(0, 30, "0-30d"), (31, 60, "31-60d"), (61, 10_000, "61d+")]
+# Aging bands over fees that are ACTUALLY past due. Fees not yet due are a
+# separate row, never folded into the youngest band: a fee due next month is
+# an open receivable, not an aged one.
+BUCKETS = [(1, 30, "1-30d"), (31, 60, "31-60d"), (61, 10_000, "61d+")]
+NOT_YET_DUE = "Not yet due"
 
 
 def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -25,6 +29,18 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
     return (max(0.0, centre - margin), min(1.0, centre + margin))
 
 
+def _partition(frame: pd.DataFrame):
+    """Yield (label, rows) for the not-yet-due set plus each past-due band.
+
+    Buckets and recovery rows are both built from this, so the two lists stay
+    index-aligned — forecasting zips them together.
+    """
+    yield NOT_YET_DUE, frame[~frame["past_due"]]
+    past = frame[frame["past_due"]]
+    for lo, hi, label in BUCKETS:
+        yield label, past[(past["days_past_due"] >= lo) & (past["days_past_due"] <= hi)]
+
+
 def build(frames: dict, anchor_date: str) -> dict:
     fees: pd.DataFrame = frames["fees"].copy()
     payments: pd.DataFrame = frames["payments"]
@@ -33,29 +49,41 @@ def build(frames: dict, anchor_date: str) -> dict:
 
     anchor = datetime.fromisoformat(anchor_date)
     fees["outstanding"] = (fees["amount"] - fees["paid"]).clip(lower=0)
-    fees["days_past_due"] = fees["dueDate"].map(
-        lambda d: max(0, (anchor - datetime.fromisoformat(str(d)[:10])).days)
+    # Signed distance from the due date — negative means the fee is not due
+    # yet. Clamping this at 0 (the previous behaviour) parked every future-dated
+    # fee in the youngest aging band, which is what made "overdue" silently mean
+    # "31+ days past due" and under-reported the real past-due count.
+    fees["days_from_due"] = fees["dueDate"].map(
+        lambda d: (anchor - datetime.fromisoformat(str(d)[:10])).days
     )
+    # Same rule as the API: past its due date and not fully paid.
+    fees["past_due"] = fees["days_from_due"] > 0
+    # Clamped view for anomaly features and per-account text, where "days past
+    # due" must not read negative.
+    fees["days_past_due"] = fees["days_from_due"].clip(lower=0)
 
     open_fees = fees[fees["outstanding"] > 0]
+    overdue_fees = open_fees[open_fees["past_due"]]
     total_billed = float(fees["amount"].sum())
     total_outstanding = float(open_fees["outstanding"].sum())
 
-    # Aging buckets over OPEN fees.
-    buckets = []
-    for lo, hi, label in BUCKETS:
-        rows = open_fees[(open_fees["days_past_due"] >= lo) & (open_fees["days_past_due"] <= hi)]
-        buckets.append({
+    # Aging buckets over OPEN fees. "accounts" counts distinct students, the
+    # same unit the fees API and dashboard report — one student with three
+    # unpaid fees is one account to chase, not three.
+    buckets = [
+        {
             "bucket": label,
-            "accounts": int(len(rows)),
+            "accounts": int(rows["studentId"].nunique()),
+            "fee_records": int(len(rows)),
             "outstanding": round(float(rows["outstanding"].sum()), 2),
-        })
+        }
+        for label, rows in _partition(open_fees)
+    ]
 
     # Cross-sectional recovery evidence: among fees due in each bucket window,
     # what fraction of billed value has actually been collected?
     recovery = []
-    for lo, hi, label in BUCKETS:
-        rows = fees[(fees["days_past_due"] >= lo) & (fees["days_past_due"] <= hi)]
+    for label, rows in _partition(fees):
         billed = float(rows["amount"].sum())
         collected = float(rows["paid"].sum())
         n = int(len(rows))
@@ -95,7 +123,12 @@ def build(frames: dict, anchor_date: str) -> dict:
     return {
         "insufficient": False,
         "n_fees": int(len(fees)),
-        "open_accounts": int(len(open_fees)),
+        # Accounts = distinct students; records = individual fee rows.
+        "open_accounts": int(open_fees["studentId"].nunique()),
+        "open_fee_records": int(len(open_fees)),
+        "overdue_accounts": int(overdue_fees["studentId"].nunique()),
+        "overdue_fee_records": int(len(overdue_fees)),
+        "overdue_outstanding": round(float(overdue_fees["outstanding"].sum()), 2),
         "total_billed": round(total_billed, 2),
         "total_outstanding": round(total_outstanding, 2),
         "outstanding_ratio": round(total_outstanding / total_billed, 4) if total_billed else None,

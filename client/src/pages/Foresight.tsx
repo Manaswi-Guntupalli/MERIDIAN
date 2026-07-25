@@ -15,7 +15,7 @@ interface Forecast {
 }
 interface AtRiskStudent {
   studentId: string; name: string; className: string | null; riskScore: number; band: 'HIGH' | 'ELEVATED';
-  factors: { attendanceRate: number; attendanceDeficit: number; feeOverdueDays: number; feesDue: number; lateShare: number; trendDelta: number | null };
+  factors: { attendanceRate: number; attendanceDeficit: number; feeOverdueDays: number; feesDue: number; feesPastDue?: number; lateShare: number; trendDelta: number | null };
   reasons: string[];
   confidence: { value: number; explanation: string };
 }
@@ -185,7 +185,9 @@ function RiskRow({ s, i, onMessage, onFlag, busy }: { s: AtRiskStudent; i: numbe
       {open && (
         <div className="mt-2 rounded-lg border border-line bg-ink-800/40 px-3 py-2 text-[0.7rem] leading-relaxed text-slate-500">
           <b className="text-slate-600">Factors:</b>{' '}
-          attendance {Math.round(s.factors.attendanceRate * 100)}% (deficit {s.factors.attendanceDeficit}) · fees ₹{s.factors.feesDue.toLocaleString('en-IN')} / {s.factors.feeOverdueDays}d overdue · late share {Math.round(s.factors.lateShare * 100)}%
+          attendance {Math.round(s.factors.attendanceRate * 100)}% (deficit {s.factors.attendanceDeficit}) · fees ₹{(s.factors.feesPastDue ?? s.factors.feesDue).toLocaleString('en-IN')} past due / {s.factors.feeOverdueDays}d
+          {s.factors.feesPastDue != null && s.factors.feesDue > s.factors.feesPastDue && <> (+₹{(s.factors.feesDue - s.factors.feesPastDue).toLocaleString('en-IN')} not yet due)</>}
+          {' '}· late share {Math.round(s.factors.lateShare * 100)}%
           {s.factors.trendDelta !== null && <> · trend {s.factors.trendDelta > 0 ? '+' : ''}{Math.round(s.factors.trendDelta * 100)} pts</>}
           <span className="mt-0.5 block"><b className="text-slate-600">Confidence {s.confidence.value}%:</b> {s.confidence.explanation}</span>
         </div>

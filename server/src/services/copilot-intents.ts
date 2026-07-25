@@ -236,17 +236,36 @@ export const INTENTS: IntentDef[] = [
     keywords: ['overdue fee', 'unpaid', "haven't paid", 'not paid', 'pending fee', 'fee due', 'owe'],
     resolve: async ({ schoolId, params }) => {
       const threshold = num(params.threshold, 0);
-      const rows = await prisma.fee.findMany({ where: { schoolId, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } }, include: { student: true } });
-      const accounts = rows
-        .map((f) => ({ student: f.student.name, due: Math.round(f.amount - f.paid), title: f.title, status: f.status }))
+      const rows = await prisma.fee.findMany({ where: { schoolId }, include: { student: true } });
+      // Overdue = past its due date and not fully paid, the same rule the fees
+      // API and Kairos apply. Filtering on the stored status (frozen at
+      // creation) counted fees that are merely unpaid-but-not-yet-due as
+      // overdue, so this answer contradicted the Fees page.
+      const now = Date.now();
+      const open = rows.filter((f) => f.paid < f.amount);
+      const pastDue = open.filter((f) => new Date(f.dueDate).getTime() < now);
+      const accounts = pastDue
+        .map((f) => ({ student: f.student.name, studentId: f.studentId, due: Math.round(f.amount - f.paid), title: f.title, dueDate: f.dueDate, status: f.status }))
         .filter((a) => a.due > threshold)
         .sort((a, b) => b.due - a.due);
       const total = accounts.reduce((a, r) => a + r.due, 0);
+      const students = new Set(accounts.map((a) => a.studentId)).size;
+      const notYetDue = open.length - pastDue.length;
+      const notYetDueAmount = open.reduce((a, f) => a + (f.amount - f.paid), 0) - pastDue.reduce((a, f) => a + (f.amount - f.paid), 0);
       return {
-        facts: { thresholdRupees: threshold, count: accounts.length, totalOutstanding: total, accounts: accounts.slice(0, 40) },
+        facts: {
+          thresholdRupees: threshold,
+          overdueAccounts: students,
+          overdueFeeRecords: accounts.length,
+          totalOverdue: total,
+          notYetDue: { feeRecords: notYetDue, amount: Math.round(notYetDueAmount) },
+          accounts: accounts.slice(0, 40),
+        },
         fallbackText: accounts.length
-          ? `${accounts.length} account(s)${threshold ? ` above ${inr(threshold)}` : ''} owe ${inr(total)}. Largest: ${accounts.slice(0, 4).map((a) => `${a.student} ${inr(a.due)}`).join(', ')}.`
-          : `No overdue accounts${threshold ? ` above ${inr(threshold)}` : ''}.`,
+          ? `${students} account(s)${threshold ? ` above ${inr(threshold)}` : ''} are past due, owing ${inr(total)}. Largest: ${accounts.slice(0, 4).map((a) => `${a.student} ${inr(a.due)}`).join(', ')}.` +
+            (notYetDue ? ` A further ${inr(Math.round(notYetDueAmount))} is billed but not yet due.` : '')
+          : `No overdue accounts${threshold ? ` above ${inr(threshold)}` : ''}.` +
+            (notYetDue ? ` ${inr(Math.round(notYetDueAmount))} is billed but not yet due.` : ''),
         actions: [
           ...(accounts.length ? [{ label: 'Send reminders now', execute: { kind: 'fee-reminders' as const } }] : []),
           ...ACTIONS.fees,
@@ -261,11 +280,14 @@ export const INTENTS: IntentDef[] = [
     description: 'Report the total outstanding (unpaid) fee amount across the school.',
     keywords: ['total outstanding', 'total fees', 'how much outstanding', 'total due', 'total unpaid'],
     resolve: async ({ schoolId }) => {
-      const rows = await prisma.fee.findMany({ where: { schoolId }, select: { amount: true, paid: true, status: true } });
+      const rows = await prisma.fee.findMany({ where: { schoolId }, select: { amount: true, paid: true, status: true, studentId: true } });
       const outstanding = rows.reduce((a, f) => a + (f.amount - f.paid), 0);
       const billed = rows.reduce((a, f) => a + f.amount, 0);
       const collected = rows.reduce((a, f) => a + f.paid, 0);
-      const openCount = rows.filter((f) => f.status !== 'PAID').length;
+      // An account is a student, not a fee row — a student with three unpaid
+      // fees is one account. Derived from the amounts, since the stored status
+      // is frozen at creation.
+      const openCount = new Set(rows.filter((f) => f.paid < f.amount).map((f) => f.studentId)).size;
       return {
         facts: { outstanding: Math.round(outstanding), billed: Math.round(billed), collected: Math.round(collected), collectionRatePct: billed ? Math.round((collected / billed) * 100) : 100, openAccounts: openCount },
         fallbackText: `${inr(outstanding)} outstanding across ${openCount} open account(s) — ${billed ? Math.round((collected / billed) * 100) : 100}% of billed fees collected.`,

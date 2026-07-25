@@ -36,8 +36,13 @@ def build(frames: dict, anchor_date: str) -> dict:
     if not slots.empty:
         days = int(slots["day"].max()) + 1
         periods = int(slots["period"].max()) + 1
+        # Denominator is the rooms this timetable actually books, not the
+        # school's room inventory — a room the solver never touches cannot pull
+        # this number down, so it reads as "how densely are the rooms in use
+        # booked", not "how much of the estate is used".
         rooms = slots["roomId"].nunique()
         out["room_utilization"] = round(len(slots[slots["roomId"].notna()]) / (rooms * days * periods), 4) if rooms else None
+        out["room_utilization_basis"] = f"{rooms} room(s) booked by this timetable x {days} days x {periods} periods"
 
         # Teacher idle gaps: for each teacher-day, periods between first and
         # last assignment that are unassigned.

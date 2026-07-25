@@ -58,12 +58,14 @@ def build(frames: dict, anchor: str) -> dict:
 
     class_names = dict(zip(classes["id"], classes["name"])) if not classes.empty else {}
 
-    # Open-fee aging per student.
+    # Open-fee aging per student. Past-due money is tracked separately from
+    # money that is merely billed: only the former is "overdue", and reporting
+    # one total next to an overdue age reads as if all of it were late.
     fee_days: dict[str, float] = {}
     fee_due: dict[str, float] = {}
+    fee_past_due: dict[str, float] = {}
     if not fees.empty:
-        open_fees = fees[fees["status"].isin(["PENDING", "PARTIAL", "OVERDUE"])]
-        for _, f in open_fees.iterrows():
+        for _, f in fees.iterrows():
             due = float(f["amount"]) - float(f["paid"])
             if due <= 0:
                 continue
@@ -73,7 +75,9 @@ def build(frames: dict, anchor: str) -> dict:
                 overdue = 0
             sid = f["studentId"]
             fee_due[sid] = fee_due.get(sid, 0.0) + due
-            fee_days[sid] = max(fee_days.get(sid, 0.0), float(max(overdue, 0)))
+            if overdue > 0:
+                fee_past_due[sid] = fee_past_due.get(sid, 0.0) + due
+                fee_days[sid] = max(fee_days.get(sid, 0.0), float(overdue))
 
     rows = []
     for _, s in active.iterrows():
@@ -115,7 +119,12 @@ def build(frames: dict, anchor: str) -> dict:
         if f_att > 0:
             reasons.append(f"attendance {rate*100:.0f}% over {n} marked day(s)")
         if f_fee > 0:
-            reasons.append(f"fees ₹{fee_due.get(sid, 0):,.0f} outstanding, oldest {fee_days.get(sid, 0):.0f}d overdue")
+            past_due = fee_past_due.get(sid, 0.0)
+            not_yet_due = fee_due.get(sid, 0.0) - past_due
+            reasons.append(
+                f"fees ₹{past_due:,.0f} past due, oldest {fee_days.get(sid, 0):.0f}d"
+                + (f" (plus ₹{not_yet_due:,.0f} not yet due)" if not_yet_due > 0 else "")
+            )
         if f_late > 0:
             reasons.append(f"late {lates}x in {n} day(s)")
         if f_trend > 0:
@@ -136,7 +145,8 @@ def build(frames: dict, anchor: str) -> dict:
                 "attendanceRate": round(rate, 3),
                 "attendanceDeficit": round(f_att, 3),
                 "feeOverdueDays": fee_days.get(sid, 0.0),
-                "feesDue": round(fee_due.get(sid, 0.0)),
+                "feesDue": round(fee_due.get(sid, 0.0)),          # all open fees
+                "feesPastDue": round(fee_past_due.get(sid, 0.0)),  # the overdue slice only
                 "lateShare": round(late_share, 3),
                 "trendDelta": round(delta, 3) if delta is not None else None,
             },

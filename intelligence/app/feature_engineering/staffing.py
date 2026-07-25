@@ -1,7 +1,14 @@
 """Staffing feature engineering — workload, absence history, cover capacity."""
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
+
+
+def _day_index(date: str) -> int:
+    """Calendar date ➜ timetable day index, matching Kairos (Mon=0 … Sun=6)."""
+    return datetime.strptime(str(date)[:10], "%Y-%m-%d").weekday()
 
 
 def build(frames: dict, anchor_date: str) -> dict:
@@ -26,10 +33,30 @@ def build(frames: dict, anchor_date: str) -> dict:
     absence_rate = absence_days / exposure if exposure else None
 
     uncovered_today = 0
+    uncovered_classes: list[str] = []
+    students_affected: int | None = None
     if not absences.empty:
         today = absences[absences["date"] == anchor_date]
-        covered_ids = set(subs["absenceId"]) if not subs.empty else set()
-        uncovered_today = int((~today["id"].isin(covered_ids)).sum())
+        # Only an ACCEPTED substitution is cover — a declined or pending one
+        # leaves the period unstaffed, and the insight says "no accepted
+        # substitution", so the filter has to say the same thing.
+        covered_ids = (
+            set(subs.loc[subs["accepted"].astype(bool), "absenceId"]) if not subs.empty else set()
+        )
+        uncovered = today[~today["id"].isin(covered_ids)]
+        uncovered_today = int(len(uncovered))
+
+        # Who is actually affected: the classes those teachers were timetabled
+        # to teach on this weekday, and the students enrolled in them. Derived
+        # from real slots and rosters rather than assuming a class size.
+        slots, students = frames["slots"], frames["students"]
+        if uncovered_today and not slots.empty and not students.empty:
+            day_idx = _day_index(anchor_date)
+            mine = slots[(slots["day"] == day_idx) & (slots["teacherId"].isin(uncovered["teacherId"]))]
+            uncovered_classes = sorted({c for c in mine["classId"].dropna()})
+            if uncovered_classes:
+                active = students[students["active"] == 1]
+                students_affected = int(active["classId"].isin(uncovered_classes).sum())
 
     return {
         "insufficient": False,
@@ -46,4 +73,8 @@ def build(frames: dict, anchor_date: str) -> dict:
         "teacher_day_exposure": exposure,
         "absence_rate": round(absence_rate, 5) if absence_rate is not None else None,
         "uncovered_today": uncovered_today,
+        "uncovered_classes_today": len(uncovered_classes),
+        # None when there is no timetable/roster to derive it from — the engine
+        # then reports the absence count rather than inventing a headcount.
+        "students_affected_today": students_affected,
     }

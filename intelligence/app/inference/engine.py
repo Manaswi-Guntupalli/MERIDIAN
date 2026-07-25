@@ -75,7 +75,7 @@ def run(school_id: str) -> dict:
         worst_class = dev["classes"][0] if dev["classes"] else None
         worst_grade = dev["grades"][0] if dev["grades"] else None
         worst_day = dev["weekdays"][0] if dev["weekdays"] else None
-        late_n = att["coverage"]["late_events_window"]
+        late_n = att["coverage"]["late_events_total"]
         declining = change < -1 and tr["p_value"] < 0.4
         severity = "WARNING" if declining else "SUCCESS"
         title = (
@@ -96,7 +96,7 @@ def run(school_id: str) -> dict:
         if worst_day:
             evidence.append({"label": f"Weakest weekday — {worst_day['key']}", "value": f"{worst_day['deviation_pct_points']:+.1f} pts"})
             drivers.append(f"{worst_day['key']}s {worst_day['deviation_pct_points']:+.1f} pts")
-        evidence.append({"label": "Late arrivals in window", "value": late_n})
+        evidence.append({"label": "Late arrivals", "value": late_n, "detail": "all recorded events, not limited to the trend window"})
         # Every source (RFID / CV / manual) writes the same Attendance
         # table — show the mix so it's visible they all feed one number.
         mix = att["coverage"].get("source_mix") or {}
@@ -143,35 +143,52 @@ def run(school_id: str) -> dict:
 
     # ── Finance ─────────────────────────────────────────────────────────
     if not fin.get("insufficient") and fin["open_accounts"] > 0:
-        overdue31 = [b for b in fin["aging_buckets"] if b["bucket"] != "0-30d"]
-        overdue31_accounts = sum(b["accounts"] for b in overdue31)
-        overdue31_amount = sum(b["outstanding"] for b in overdue31)
+        # "Overdue" means past the due date and not fully paid — the same rule
+        # the fees API and dashboard use. The 31+ day slice is reported inside
+        # it as the oldest money, not as the headline count.
+        overdue_accounts = fin["overdue_accounts"]
+        overdue_amount = fin["overdue_outstanding"]
+        aged31 = [b for b in fin["aging_buckets"] if b["bucket"] in ("31-60d", "61d+")]
+        aged31_accounts = sum(b["accounts"] for b in aged31)
+        aged31_amount = sum(b["outstanding"] for b in aged31)
         conf = observed_fact(fin["n_fees"], "fee ledger aging")
         evidence = [
             {"label": "Outstanding", "value": f"₹{fin['total_outstanding']:,.0f}", "detail": f"{fin['outstanding_ratio']*100:.1f}% of billed"},
-            *[{"label": f"Aging {b['bucket']}", "value": f"{b['accounts']} accounts", "detail": f"₹{b['outstanding']:,.0f}"} for b in fin["aging_buckets"]],
+            {"label": "Past due", "value": f"{overdue_accounts} account(s)",
+             "detail": f"₹{overdue_amount:,.0f} — past the due date and not fully paid"},
+            *[{"label": b["bucket"] if b["bucket"] == "Not yet due" else f"Aging {b['bucket']}",
+               "value": f"{b['accounts']} account(s)",
+               "detail": f"₹{b['outstanding']:,.0f} across {b['fee_records']} fee record(s)"} for b in fin["aging_buckets"]],
         ]
-        rec_note = fin["recovery_by_bucket"][0].get("collected_ratio")
         insights.append(_insight(
-            "fee-aging", "finance", "WARNING" if overdue31_accounts else "INFO",
+            "fee-aging", "finance", "WARNING" if overdue_accounts else "INFO",
             f"{fin['open_accounts']} open fee account(s), ₹{fin['total_outstanding']:,.0f} outstanding",
             evidence, conf,
             {"count": fin["open_accounts"], "entities": [str(a["studentId"]) for a in fin["top_open_accounts"]]},
-            f"{overdue31_accounts} account(s) are 31+ days past due (₹{overdue31_amount:,.0f}). "
+            f"{overdue_accounts} account(s) are past due (₹{overdue_amount:,.0f}), of which "
+            f"{aged31_accounts} are 31+ days past due (₹{aged31_amount:,.0f}). The remaining "
+            f"₹{fin['total_outstanding'] - overdue_amount:,.0f} is billed but not yet due. "
             + ("Recovery ratios are cross-sectional observations from this ledger — no longitudinal payment history exists yet."
                if not fin["payment_history_available"] else "Recovery estimates use recorded payment history."),
-            f"Collecting the 31+ day bucket would reduce outstanding by ₹{overdue31_amount:,.0f}.",
+            f"Collecting everything past due would reduce outstanding by ₹{overdue_amount:,.0f}.",
             {"model": "Aging-bucket statistics with Wilson 95% intervals", "window": f"as of {anchor}",
              "features": {"buckets": fin["aging_buckets"], "recovery": fin["recovery_by_bucket"]},
              "dataSources": ["Fee", "Payment"]},
         ))
-        candidates.append({
-            "id": "act-fees", "title": f"Follow up {overdue31_accounts or fin['open_accounts']} overdue fee account(s)",
-            "detail": f"₹{(overdue31_amount or fin['total_outstanding']):,.0f} at risk; oldest bucket first",
-            "severity": "WARNING", "confidence": conf.value,
-            "impact": min(fin["outstanding_ratio"] * 2, 1.0), "affected": fin["open_accounts"],
-            "risk": 0.6, "effort_key": "followup_fees", "action_to": "/fees", "action_label": "Open fees", "evidence_ref": "fee-aging",
-        })
+        # Only chase what is actually past due — if nothing is, there is no
+        # follow-up to recommend and we say nothing rather than pad the list.
+        if overdue_accounts:
+            candidates.append({
+                "id": "act-fees", "title": f"Follow up {overdue_accounts} overdue fee account(s)",
+                "detail": f"₹{overdue_amount:,.0f} past due; oldest bucket first"
+                          + (f" ({aged31_accounts} account(s) 31+ days)" if aged31_accounts else ""),
+                "severity": "WARNING", "confidence": conf.value,
+                # Impact is the past-due share of billing, not total outstanding —
+                # money that is not due yet is not what this action recovers.
+                "impact": min((overdue_amount / fin["total_billed"]) * 2, 1.0) if fin["total_billed"] else 0.0,
+                "affected": overdue_accounts,
+                "risk": 0.6, "effort_key": "followup_fees", "action_to": "/fees", "action_label": "Open fees", "evidence_ref": "fee-aging",
+            })
 
     # ── Documents ───────────────────────────────────────────────────────
     if not docs.get("insufficient") and docs["review_queue"] > 0:
@@ -208,7 +225,8 @@ def run(school_id: str) -> dict:
         evidence = [
             {"label": "Solver score", "value": f"{tt['score']:.0f} / 100", "detail": tt["name"]},
             {"label": "Teacher idle gaps / week", "value": tt.get("teacher_idle_gaps_per_week", "—")},
-            {"label": "Room utilization", "value": f"{tt['room_utilization']*100:.0f}%" if tt.get("room_utilization") else "—"},
+            {"label": "Utilization of rooms in use", "value": f"{tt['room_utilization']*100:.0f}%" if tt.get("room_utilization") else "—",
+             "detail": "share of slots filled across the rooms this timetable uses — rooms it never books are not in the denominator"},
         ]
         if warnings:
             evidence.append({"label": "Solver warnings", "value": len(warnings), "detail": str(warnings[0])[:80]})
@@ -234,21 +252,42 @@ def run(school_id: str) -> dict:
     if not staff.get("insufficient"):
         if staff["uncovered_today"] > 0:
             conf = observed_fact(staff["n_teachers"], "absence and substitution records")
+            classes_out = staff.get("uncovered_classes_today") or 0
+            # Real roster headcount for the affected classes. When there is no
+            # timetable to derive it from, fall back to the absence count —
+            # understating beats multiplying by an assumed class size.
+            pupils = staff.get("students_affected_today")
+            evidence = [
+                {"label": "Uncovered absences", "value": staff["uncovered_today"],
+                 "detail": "no accepted substitution recorded"},
+                {"label": "Teachers with spare capacity", "value": staff["spare_capacity_count"]},
+            ]
+            if classes_out:
+                row = {"label": "Classes left unstaffed", "value": classes_out}
+                if pupils is not None:
+                    row["detail"] = f"{pupils} student(s) enrolled"
+                evidence.insert(1, row)
             insights.append(_insight(
                 "staff-cover", "staffing", "CRITICAL",
-                f"{staff['uncovered_today']} class(es) uncovered today",
-                [{"label": "Uncovered absences", "value": staff["uncovered_today"]},
-                 {"label": "Teachers with spare capacity", "value": staff["spare_capacity_count"]}],
-                conf, {"count": staff["uncovered_today"], "entities": []},
-                f"Absences recorded for {anchor} have no accepted substitution.",
+                f"{classes_out} class(es) uncovered today" if classes_out
+                else f"{staff['uncovered_today']} absence(s) uncovered today",
+                evidence,
+                conf, {"count": classes_out or staff["uncovered_today"], "entities": []},
+                f"Absences recorded for {anchor} have no accepted substitution."
+                + (f" Their timetabled slots that day cover {classes_out} class(es), {pupils} student(s)."
+                   if classes_out and pupils is not None else ""),
                 "Unassigned cover means unsupervised periods.",
-                {"model": "Direct absence/substitution join", "window": anchor, "features": staff, "dataSources": ["StaffAbsence", "Substitution"]},
+                {"model": "Absence/substitution join (accepted only) x timetable slots for the weekday",
+                 "window": anchor, "features": staff, "dataSources": ["StaffAbsence", "Substitution", "TimetableSlot", "Student"]},
             ))
             candidates.append({
-                "id": "act-cover", "title": f"Assign cover for {staff['uncovered_today']} class(es)",
+                "id": "act-cover",
+                "title": f"Assign cover for {classes_out} class(es)" if classes_out
+                else f"Assign cover for {staff['uncovered_today']} absence(s)",
                 "detail": f"{staff['spare_capacity_count']} teacher(s) under 70% load available",
                 "severity": "CRITICAL", "confidence": conf.value, "impact": 0.9,
-                "affected": staff["uncovered_today"] * 30, "risk": 0.9, "effort_key": "cover_classes",
+                "affected": pupils if pupils is not None else staff["uncovered_today"],
+                "risk": 0.9, "effort_key": "cover_classes",
                 "action_to": "/foresight", "action_label": "Suggest substitutes", "evidence_ref": "staff-cover",
             })
         if staff["overloaded_count"] > 0:

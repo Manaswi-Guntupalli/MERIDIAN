@@ -31,7 +31,8 @@ export default function Reports() {
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile index={0} label="Students" value={m.students} accent="cyan" />
-        <StatTile index={1} label="Attendance" value={`${m.attendanceRate}%`} accent="mint" />
+        {/* null = roll-call not taken yet, which is not the same as 0%. */}
+        <StatTile index={1} label="Attendance" value={m.attendanceRate === null ? '—' : `${m.attendanceRate}%`} accent="mint" />
         <StatTile index={2} label="Collected" value={inr(m.collected)} accent="brand" />
         <StatTile index={3} label="Outstanding" value={inr(m.outstanding)} accent="amber" />
       </div>

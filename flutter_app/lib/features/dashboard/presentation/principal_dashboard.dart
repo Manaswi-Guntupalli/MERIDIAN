@@ -8,6 +8,8 @@ import '../../../core/theme/app_typography.dart';
 import '../../../shared/ui/ui.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../data/dashboard_repository.dart';
+import '../data/intelligence_repository.dart';
+import 'recommended_actions.dart';
 
 /// The Principal's dashboard — school health, today's attendance, active
 /// sessions, fees and alerts. Everything is read live from the same backend the
@@ -24,6 +26,7 @@ class PrincipalDashboard extends ConsumerWidget {
       onRefresh: () async {
         ref.invalidate(dashboardStatsProvider);
         ref.invalidate(activeSessionsProvider);
+        ref.invalidate(intelligenceProvider);
         await ref.read(dashboardStatsProvider.future);
       },
       child: ListView(
@@ -83,6 +86,10 @@ class _DashboardBody extends ConsumerWidget {
         _HealthCard(stats: stats),
         const SizedBox(height: 14),
 
+        // ── Ranked actions from the intelligence engine (same panel as web) ──
+        const RecommendedActions(),
+        const SizedBox(height: 14),
+
         // ── Key counts ──
         _grid([
           StatTile(label: 'Students', value: '${stats.students}', icon: Icons.school_outlined, accent: MAccent.brand),
@@ -118,7 +125,10 @@ class _DashboardBody extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  Text('${stats.overdueCount} dues open',
+                  // "Accounts past due" is the same rule the API and the web
+                  // use: past the due date and not fully paid. It is NOT the
+                  // count of open accounts, so it must not be labelled as one.
+                  Text('${stats.overdueCount} past due',
                       style: const TextStyle(fontSize: 12, color: AppColors.slate500)),
                 ],
               ),
@@ -236,24 +246,53 @@ class _DashboardBody extends ConsumerWidget {
     );
   }
 
-  Widget _grid(List<Widget> tiles) => GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.55,
-        children: tiles,
+  /// Two-up tiles that size to their own content.
+  ///
+  /// A fixed `childAspectRatio` overflowed on real devices as soon as a tile
+  /// carried a sub-line or the user's font scale was above default (seen as
+  /// "BOTTOM OVERFLOWED BY 27 PIXELS" on a 1080x2376 phone). Pairing the tiles
+  /// in an IntrinsicHeight row lets each row take the height its tallest tile
+  /// needs, so the layout holds at any text scale.
+  Widget _grid(List<Widget> tiles) {
+    final rows = <Widget>[];
+    for (var i = 0; i < tiles.length; i += 2) {
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: tiles[i]),
+              const SizedBox(width: 12),
+              Expanded(
+                child: i + 1 < tiles.length
+                    ? tiles[i + 1]
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
       );
+      if (i + 2 < tiles.length) rows.add(const SizedBox(height: 12));
+    }
+    return Column(children: rows);
+  }
 }
 
-class _HealthCard extends StatelessWidget {
+class _HealthCard extends ConsumerWidget {
   const _HealthCard({required this.stats});
   final DashboardStats stats;
 
   @override
-  Widget build(BuildContext context) {
-    final h = stats.health;
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Same precedence as the web dashboard: the engine's score and weighted
+    // categories when it is online, the server's simpler breakdown only as a
+    // fallback. Two different formulas showing two different numbers for the
+    // same school is what makes a dashboard untrustworthy.
+    final intel = ref.watch(intelligenceProvider).value;
+    final engine = (intel != null && intel.online) ? intel.payload!.health : null;
+    final bool fromEngine = engine?.overall != null;
+
+    final h = fromEngine ? engine!.overall!.round() : stats.health;
     final (label, accent) = h >= 85
         ? ('Excellent', MAccent.mint)
         : h >= 70
@@ -282,10 +321,22 @@ class _HealthCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _bar('Attendance', b.attendance),
-          _bar('Finance', b.finance),
-          _bar('People', b.people),
-          _bar('Operations', b.operations),
+          if (fromEngine)
+            for (final c in engine!.topCategories)
+              _bar(c.label, c.score!.round())
+          else ...[
+            _bar('Attendance', b.attendance),
+            _bar('Finance', b.finance),
+            _bar('People', b.people),
+            _bar('Operations', b.operations),
+          ],
+          const SizedBox(height: 2),
+          Text(
+            fromEngine
+                ? 'Weighted across ${engine!.topCategories.length} categories by the intelligence engine.'
+                : 'Engine offline — showing the server’s basic breakdown.',
+            style: const TextStyle(fontSize: 11, color: AppColors.slate400),
+          ),
         ],
       ),
     );
@@ -354,10 +405,11 @@ class _ErrorCard extends StatelessWidget {
             hint: message,
           ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
+          MButton(
+            'Try again',
+            icon: Icons.refresh,
+            kind: MButtonKind.ghost,
             onPressed: onRetry,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Try again'),
           ),
         ],
       ),

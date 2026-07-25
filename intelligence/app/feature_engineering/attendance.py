@@ -126,7 +126,8 @@ def coverage_and_sources(attendance: pd.DataFrame, events: pd.DataFrame, student
         "active_students": active,
         "marked_on_anchor": marked,
         "missing_ratio": round(1 - marked / active, 4) if active else None,
-        "late_events_window": late_events,
+        # Whole event log, not the trend window — named for what it counts.
+        "late_events_total": late_events,
         "avg_late_minutes": round(late_minutes, 1) if late_minutes is not None else None,
         "source_mix": {str(k): float(v) for k, v in source_mix.items()},
         "cv_confidence_mean": round(float(cv_conf.mean()), 4) if len(cv_conf) else None,

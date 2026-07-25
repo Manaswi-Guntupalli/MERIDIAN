@@ -47,13 +47,17 @@ export async function todaySummary(schoolId: string) {
   ]);
   const present = attendance.filter((a) => a.status === 'PRESENT').length;
   const late = attendance.filter((a) => a.status === 'LATE').length;
+  // Absent means someone marked them absent. Not-yet-marked is its own state:
+  // deriving both from `totalStudents - marked` reported every unmarked student
+  // twice, so before roll-call the four states summed to double the school.
+  const absent = attendance.filter((a) => a.status === 'ABSENT').length;
   const marked = attendance.length;
   return {
     date,
     totalStudents,
     present,
     late,
-    absent: Math.max(0, totalStudents - marked),
+    absent,
     unmarked: Math.max(0, totalStudents - marked),
     activeSessions,
     proxyAttempts: proxyToday,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -155,6 +157,85 @@ class MChip extends StatelessWidget {
   }
 }
 
+/// Web `.btn-primary` / `.btn-ghost` / danger — the three button weights the
+/// web uses, with a built-in busy state so callers never hand-roll a spinner.
+enum MButtonKind { primary, ghost, danger }
+
+class MButton extends StatelessWidget {
+  const MButton(
+    this.label, {
+    super.key,
+    this.onPressed,
+    this.icon,
+    this.kind = MButtonKind.primary,
+    this.busy = false,
+    this.dense = false,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final MButtonKind kind;
+  final bool busy;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool disabled = busy || onPressed == null;
+    final (Color fg, Color bg, Color border) = switch (kind) {
+      MButtonKind.primary => (Colors.white, AppColors.brand, AppColors.brand),
+      MButtonKind.ghost => (AppColors.slate700, Colors.transparent, AppColors.line),
+      MButtonKind.danger => (Colors.white, AppColors.rose, AppColors.rose),
+    };
+    final pad = dense
+        ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 12);
+
+    return Opacity(
+      opacity: disabled ? 0.55 : 1,
+      child: Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppRadii.control),
+        child: InkWell(
+          onTap: disabled ? null : onPressed,
+          borderRadius: BorderRadius.circular(AppRadii.control),
+          child: Container(
+            padding: pad,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadii.control),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (busy) ...[
+                  SizedBox(
+                    width: 13,
+                    height: 13,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: fg),
+                  ),
+                  const SizedBox(width: 8),
+                ] else if (icon != null) ...[
+                  Icon(icon, size: dense ? 14 : 16, color: fg),
+                  const SizedBox(width: 7),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: dense ? 12.5 : 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Web `StatTile` — a quiet accent rail, an uppercase label, a big serif value,
 /// an optional sub-line, and an optional washed icon.
 class StatTile extends StatelessWidget {
@@ -223,9 +304,18 @@ class StatTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  value,
-                  style: AppType.display(27, weight: FontWeight.w600, letterSpacing: 0),
+                // Long values (₹17,83,275) must shrink rather than wrap — a
+                // two-line figure breaks the tile's rhythm and, on narrow
+                // phones, its height.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: AppType.display(27,
+                        weight: FontWeight.w600, letterSpacing: 0),
+                  ),
                 ),
                 if (sub != null) ...[
                   const SizedBox(height: 4),
@@ -430,6 +520,119 @@ class MEmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Web `CellIdentity` — initials chip + title + sub-line, the roster row's
+/// leading identity block. Used by Students and Staff so both read alike.
+class MIdentity extends StatelessWidget {
+  const MIdentity({
+    super.key,
+    required this.initials,
+    required this.title,
+    this.sub,
+    this.accent = MAccent.brand,
+  });
+
+  final String initials;
+  final String title;
+  final String? sub;
+  final MAccent accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = accent.color;
+    return Row(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: c.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: c.withValues(alpha: 0.22)),
+          ),
+          child: Text(
+            initials,
+            style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w700, color: c),
+          ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.slate900),
+              ),
+              if (sub != null && sub!.isNotEmpty)
+                Text(
+                  sub!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.slate500),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The one place loading / failure / empty are decided, so every Phase 3
+/// screen fails the same way: the backend's own message plus a retry, never a
+/// blank screen and never a fabricated placeholder value.
+class MAsyncView<T> extends StatelessWidget {
+  const MAsyncView({
+    super.key,
+    required this.value,
+    required this.builder,
+    required this.onRetry,
+    this.loadingLabel = 'Loading…',
+    this.errorTitle = "Couldn't load this",
+  });
+
+  final AsyncValue<T> value;
+  final Widget Function(T data) builder;
+  final VoidCallback onRetry;
+  final String loadingLabel;
+  final String errorTitle;
+
+  @override
+  Widget build(BuildContext context) => value.when(
+        loading: () => Padding(
+          padding: const EdgeInsets.only(top: 70),
+          child: MLoading(label: loadingLabel),
+        ),
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.only(top: 40),
+          child: Column(
+            children: [
+              MEmptyState(
+                icon: Icons.cloud_off_outlined,
+                title: errorTitle,
+                hint: friendlyError(e),
+              ),
+              const SizedBox(height: 12),
+              MButton('Try again',
+                  icon: Icons.refresh,
+                  kind: MButtonKind.ghost,
+                  onPressed: onRetry),
+            ],
+          ),
+        ),
+        data: builder,
+      );
 }
 
 /// A subtle shimmer skeleton (web `.shimmer`).

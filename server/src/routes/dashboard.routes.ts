@@ -213,7 +213,9 @@ router.get(
     const financeScore = billed ? Math.round((collected / billed) * 100) : 100;
     const overloaded = teacherList.filter((tt) => tt.weeklyHours >= tt.maxHours - 1).length;
     const peopleScore = teachers ? Math.round(100 - (overloaded / teachers) * 100) : 100;
-    const uncovered = absencesToday.filter((a) => a.substitutions.length === 0).length;
+    // Cover only counts once a substitution is accepted — a declined or
+    // pending one still leaves the period unstaffed.
+    const uncovered = absencesToday.filter((a) => !a.substitutions.some((s) => s.accepted)).length;
     const operationsScore = Math.max(0, 100 - docsReview * 6 - uncovered * 12);
     const attendanceScore = attendanceRate;
 

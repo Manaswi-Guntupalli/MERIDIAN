@@ -26,7 +26,12 @@ router.get(
       prisma.document.count({ where: { schoolId } }),
     ]);
     const present = todayAtt.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
-    const attendanceRate = todayAtt.length ? Math.round((present / todayAtt.length) * 100) : 0;
+    // Null, not 0, when nobody has been marked yet: an unmeasured rate is not
+    // a 0% rate, and reporting it as one made the summary state the school had
+    // "a concerning attendance rate of 0%" before roll-call had even started.
+    const attendanceRate = todayAtt.length
+      ? Math.round((present / todayAtt.length) * 100)
+      : null;
     const outstanding = fees.reduce((a, f) => a + (f.amount - f.paid), 0);
     const collected = fees.reduce((a, f) => a + f.paid, 0);
     const overloaded = teachers.filter((tt) => tt.weeklyHours >= tt.maxHours - 1).map((tt) => tt.user.name);
@@ -54,6 +59,7 @@ router.get(
       teachers: teachers.length,
       classes,
       attendanceRate,
+      attendanceMarkedToday: todayAtt.length,
       collected: Math.round(collected),
       outstanding: Math.round(outstanding),
       documents: docs,
@@ -62,13 +68,20 @@ router.get(
 
     // Narrative — OpenAI if available, else a deterministic template.
     let narrative = await chatText(
-      'You are a school operations analyst. Write a crisp 3-4 sentence executive summary from the JSON metrics. No markdown headers.',
+      // The currency has to be stated: given bare numbers the model rendered
+      // this Indian school's fees as US dollars.
+      'You are a school operations analyst. Write a crisp 3-4 sentence executive summary from the JSON metrics. ' +
+        'No markdown headers. All money figures are Indian rupees — always write them with ₹ and Indian digit grouping (e.g. ₹3,52,925), never $. ' +
+        'If attendanceRate is null, roll-call has not been taken yet today — say attendance is not yet marked, never report it as 0%.',
       JSON.stringify(metrics),
     );
     if (!narrative) {
       narrative =
         `The school currently serves ${students} students across ${classes} classes with ${teachers.length} staff. ` +
-        `Today's attendance stands at ${attendanceRate}%. Fee collection has reached ₹${Math.round(collected).toLocaleString('en-IN')} with ₹${Math.round(outstanding).toLocaleString('en-IN')} outstanding. ` +
+        (attendanceRate === null
+          ? "Today's roll-call has not been taken yet, so no attendance rate is available. "
+          : `Today's attendance stands at ${attendanceRate}%. `) +
+        `Fee collection has reached ₹${Math.round(collected).toLocaleString('en-IN')} with ₹${Math.round(outstanding).toLocaleString('en-IN')} outstanding. ` +
         (overloaded.length
           ? `${overloaded.length} staff member(s) are near their weekly hour cap and should be monitored.`
           : `Staff workload is balanced within weekly caps.`);
@@ -77,7 +90,11 @@ router.get(
     const recommendations = [
       outstanding > 0 ? `Draft fee reminders for outstanding ₹${Math.round(outstanding).toLocaleString('en-IN')}.` : 'Fee collection is on track.',
       overloaded.length ? `Rebalance load for: ${overloaded.join(', ')}.` : 'Teacher workload is balanced.',
-      attendanceRate < 90 ? 'Investigate attendance dip using Foresight drivers.' : 'Attendance is healthy.',
+      attendanceRate === null
+        ? 'Take today’s roll-call — no attendance has been marked yet.'
+        : attendanceRate < 90
+          ? 'Investigate attendance dip using Foresight drivers.'
+          : 'Attendance is healthy.',
     ];
 
     await logAI({

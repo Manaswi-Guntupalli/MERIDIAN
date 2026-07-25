@@ -1,3 +1,10 @@
+import 'package:intl/intl.dart';
+
+/// Indian-format rupees with no paise — mirrors the web's `inr()`.
+final NumberFormat _inr =
+    NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+String inr(num value) => _inr.format(value);
+
 /// Compact "time ago" — mirrors the web's `timeAgo`.
 String timeAgo(DateTime? d) {
   if (d == null) return '';

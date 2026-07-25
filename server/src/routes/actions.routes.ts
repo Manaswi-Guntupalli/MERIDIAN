@@ -96,18 +96,24 @@ async function assignCover(schoolId: string, date: string, actor: { id: string; 
   };
 }
 
-/** One consolidated reminder per family with open fees — real notifications,
- *  counted honestly, never spammed per-fee-row. */
+/** One consolidated reminder per family with PAST-DUE fees — real
+ *  notifications, counted honestly, never spammed per-fee-row.
+ *
+ *  Scoped to fees past their due date so the count matches the card that
+ *  triggers it ("Follow up N overdue fee account(s)"): reminding on the stored
+ *  status also chased families whose fee is not due for weeks. */
 async function feeReminders(schoolId: string, actor: { id: string; name: string }): Promise<ExecuteResult> {
-  const open = await prisma.fee.findMany({
-    where: { schoolId, status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
+  const now = Date.now();
+  const fees = await prisma.fee.findMany({
+    where: { schoolId },
     include: { student: { include: { parents: { include: { parent: { select: { userId: true } } } }, user: { select: { id: true } } } } },
   });
-  if (!open.length) return { ok: true, kind: 'fee-reminders', done: 0, summary: 'No open fee accounts — nothing to remind.', detail: [] };
+  const overdue = fees.filter((f) => f.paid < f.amount && new Date(f.dueDate).getTime() < now);
+  if (!overdue.length) return { ok: true, kind: 'fee-reminders', done: 0, summary: 'No overdue fee accounts — nothing to remind.', detail: [] };
 
-  // Group by student; one message per family covering all their open items.
+  // Group by student; one message per family covering all their overdue items.
   const byStudent = new Map<string, { name: string; due: number; titles: string[]; userIds: Set<string> }>();
-  for (const f of open) {
+  for (const f of overdue) {
     const due = f.amount - f.paid;
     if (due <= 0) continue;
     const e = byStudent.get(f.studentId) ?? { name: f.student.name, due: 0, titles: [], userIds: new Set<string>() };
@@ -146,7 +152,7 @@ async function feeReminders(schoolId: string, actor: { id: string; name: string 
     schoolId,
     engine: 'COPILOT',
     action: 'Fee reminders dispatched',
-    reason: `${byStudent.size} family account(s) with open dues; ${sent} in-app notification(s) delivered${unreachable ? `; ${unreachable} student(s) had no linked account to notify` : ''}.`,
+    reason: `${byStudent.size} family account(s) past due; ${sent} in-app notification(s) delivered${unreachable ? `; ${unreachable} student(s) had no linked account to notify` : ''}.`,
     confidence: 1,
     output: { families: byStudent.size, recipients: sent, unreachable },
     actorId: actor.id,
