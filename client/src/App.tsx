@@ -33,6 +33,7 @@ const Trust = lazy(() => import('@/pages/Trust'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Emergency = lazy(() => import('@/pages/Emergency'));
 const Copilot = lazy(() => import('@/pages/Copilot'));
+const AiNotice = lazy(() => import('@/pages/AiNotice'));
 const Notifications = lazy(() => import('@/pages/Notifications'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Forbidden = lazy(() => import('@/pages/Forbidden'));
@@ -104,6 +105,7 @@ export default function App() {
           <Route path="/fees" element={g(ADMIN, <Fees />)} />
           <Route path="/lumen" element={g(ADMIN, <Lumen />)} />
           <Route path="/kairos" element={g(STAFF, <Kairos />)} />
+          <Route path="/notices" element={g(STAFF, <AiNotice />)} />
           <Route path="/foresight" element={g(ADMIN, <Foresight />)} />
           {/* The dedicated, projector-ready session screen lives OUTSIDE the
               Presence tab layout so it can go fullscreen cleanly. */}

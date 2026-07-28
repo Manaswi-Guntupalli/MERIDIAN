@@ -6,6 +6,8 @@ raw rows (dates, class ids, counts).
 """
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 from scipy import stats
 
@@ -44,16 +46,26 @@ def trend(daily: pd.DataFrame) -> dict:
     x = pd.RangeIndex(n).to_numpy(dtype=float)
     y = daily["rate"].to_numpy(dtype=float)
     res = stats.linregress(x, y)
+    # A perfectly flat window (every student present every day) has zero
+    # variance, so the correlation — and with it p-value and r² — is undefined
+    # and scipy returns NaN. That is not "unknown", it is "no detectable
+    # trend": the honest p-value is 1.0 (the null cannot be rejected). Passing
+    # the NaN through crashed confidence.build(), taking the whole engine down
+    # for a school whose attendance was flawless.
+    slope = float(res.slope) if math.isfinite(res.slope) else 0.0
+    p_value = float(res.pvalue) if math.isfinite(res.pvalue) else 1.0
+    r2 = float(res.rvalue**2) if math.isfinite(res.rvalue) else 0.0
+    stderr = float(res.stderr) if math.isfinite(res.stderr) else 0.0
     half = max(2, n // 2)
     first = float(daily["rate"].head(half).mean())
     last = float(daily["rate"].tail(half).mean())
     roll5 = daily["rate"].rolling(5, min_periods=2).mean()
     return {
         "n": n,
-        "slope": float(res.slope),
-        "p_value": float(res.pvalue),
-        "r2": float(res.rvalue**2),
-        "stderr": float(res.stderr),
+        "slope": slope,
+        "p_value": p_value,
+        "r2": r2,
+        "stderr": stderr,
         "window": [str(daily["date"].iloc[0]), str(daily["date"].iloc[-1])],
         "first_half_avg": first,
         "last_half_avg": last,

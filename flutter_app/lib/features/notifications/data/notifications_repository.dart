@@ -55,8 +55,10 @@ class NotificationsRepository {
     );
   }
 
-  Future<void> markAllRead() => _dio.post('/notifications/read-all');
-  Future<void> markRead(String id) => _dio.post('/notifications/$id/read');
+  // Both are PATCH on the server (notifications.routes.ts) — POSTing here got
+  // a 404, so "mark read" silently did nothing.
+  Future<void> markAllRead() => _dio.patch('/notifications/read-all');
+  Future<void> markRead(String id) => _dio.patch('/notifications/$id/read');
 }
 
 final notificationsRepositoryProvider = Provider<NotificationsRepository>(

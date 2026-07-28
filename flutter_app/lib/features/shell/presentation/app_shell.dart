@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/navigation/role_nav.dart';
+import '../../../core/realtime/realtime_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/format.dart';
 import '../../../shared/navigation/nav_destination.dart';
+import '../../../shared/widgets/app_background.dart';
 import '../../../shared/widgets/brand_logo.dart';
 import '../../auth/presentation/auth_controller.dart';
 import 'more_screen.dart';
@@ -22,13 +25,110 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   static const int _maxTabs = 5;
-  int _index = 0;
+
+  /// The synthetic overflow tab's identity. Phones show it; the tablet rail
+  /// lists every destination directly and so has no equivalent.
+  static const String _moreKey = 'More';
+
+  /// What is selected, held as a destination identity rather than a bare index.
+  ///
+  /// The two layouts present *different lists* — the bottom bar shows four
+  /// destinations plus "More", the rail shows all ten — so an index means
+  /// different things in each. Keeping an index made rotation silently jump
+  /// screens (portrait "More" is index 4; rail index 4 is Students). Labels are
+  /// unique within a role, so they identify a destination across both layouts.
+  String _selectedKey = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // The shell only exists while signed in, so this is the natural place to
+    // open (and, on sign-out teardown, close) the realtime stream.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(realtimeServiceProvider).start();
+    });
+  }
+
+  /// Resolve the current selection into an index within [shown].
+  ///
+  /// When the selected destination isn't present in this layout, fall back to
+  /// wherever it actually lives rather than to whatever happens to share its
+  /// old index:
+  ///
+  ///  * rail "Students" ➜ portrait: Students sits inside the More grid, so
+  ///    select More — one tap away, and honest about where it went.
+  ///  * portrait "More" ➜ rail: the rail lists everything, so a menu has no
+  ///    equivalent; fall back to the first destination.
+  int _resolveIndex(List<MDestination> shown, List<MDestination> overflow) {
+    final direct = shown.indexWhere((d) => d.label == _selectedKey);
+    if (direct != -1) return direct;
+
+    final isInOverflow = overflow.any((d) => d.label == _selectedKey);
+    if (isInOverflow) {
+      final more = shown.indexWhere((d) => d.label == _moreKey);
+      if (more != -1) return more;
+    }
+    return 0;
+  }
+
+  /// Publish the section so the app-wide [AppBackground] tints to match — the
+  /// mobile stand-in for the web reading the group off the URL. Deferred a
+  /// frame because selection happens during a build.
+  void _publishGroup(List<MDestination> shown, int index) {
+    if (index < 0 || index >= shown.length) return;
+    final group = shown[index].group;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(navGroupProvider.notifier).set(group);
+    });
+  }
+
+  /// Surfaces a live event in-app, the way the web's toaster does. The system
+  /// notification is raised separately by [PushService], so an alert lands
+  /// whether or not the app is in the foreground.
+  void _showAlert(RealtimeAlert alert) {
+    if (!mounted) return;
+    final c = AppColors.severity(alert.severity);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.slate900,
+          duration:
+              Duration(seconds: alert.severity == 'CRITICAL' ? 8 : 4),
+          content: Row(
+            children: [
+              Container(width: 3, height: 34, color: c),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(alert.title,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 13.5)),
+                    if (alert.body.isNotEmpty)
+                      Text(alert.body,
+                          style: const TextStyle(fontSize: 12, height: 1.35)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider);
     if (user == null) return const SizedBox.shrink();
     final destinations = navForRole(user.role);
+
+    ref.listen(realtimeAlertsProvider, (_, next) {
+      final alert = next.value;
+      if (alert != null) _showAlert(alert);
+    });
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -45,18 +145,23 @@ class _AppShellState extends ConsumerState<AppShell> {
     final List<MDestination> navDests;
     final List<Widget> pages;
 
+    List<MDestination> overflow = const [];
+
     if (destinations.length <= _maxTabs) {
       navDests = destinations;
       pages = [for (final d in destinations) d.builder(context)];
     } else {
       final primary = destinations.take(_maxTabs - 1).toList();
-      final overflow = destinations.skip(_maxTabs - 1).toList();
+      overflow = destinations.skip(_maxTabs - 1).toList();
       navDests = [
         ...primary,
+        // The overflow grid spans several modules, so it takes the neutral
+        // System hue rather than borrowing one section's colour.
         const MDestination(
-          label: 'More',
+          label: _moreKey,
           icon: Icons.more_horiz,
           builder: _noop,
+          group: NavGroup.system,
         ),
       ];
       pages = [
@@ -65,19 +170,21 @@ class _AppShellState extends ConsumerState<AppShell> {
       ];
     }
 
-    final index = _index.clamp(0, pages.length - 1);
+    final index = _resolveIndex(navDests, overflow);
+    _publishGroup(navDests, index);
     return Scaffold(
       appBar: _appBar(),
       body: IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: (i) =>
+            setState(() => _selectedKey = navDests[i].label),
         destinations: [
           for (final d in navDests)
             NavigationDestination(
               icon: Icon(d.icon),
               selectedIcon: Icon(d.selectedIcon),
-              label: d.label,
+              label: d.navLabel,
             ),
         ],
       ),
@@ -86,7 +193,9 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   // ── Tablet: navigation rail (all destinations, scroll-safe) ──
   Widget _railLayout(List<MDestination> destinations) {
-    final index = _index.clamp(0, destinations.length - 1);
+    // The rail lists every destination, so nothing is in overflow here.
+    final index = _resolveIndex(destinations, const []);
+    _publishGroup(destinations, index);
     return Scaffold(
       appBar: _appBar(),
       body: Row(
@@ -98,7 +207,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                 child: IntrinsicHeight(
                   child: NavigationRail(
                     selectedIndex: index,
-                    onDestinationSelected: (i) => setState(() => _index = i),
+                    onDestinationSelected: (i) =>
+                        setState(() => _selectedKey = destinations[i].label),
                     labelType: NavigationRailLabelType.all,
                     groupAlignment: -0.9,
                     destinations: [
@@ -106,7 +216,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         NavigationRailDestination(
                           icon: Icon(d.icon),
                           selectedIcon: Icon(d.selectedIcon),
-                          label: Text(d.label),
+                          label: Text(d.navLabel),
                         ),
                     ],
                   ),
@@ -180,7 +290,7 @@ class _AppShellState extends ConsumerState<AppShell> {
               radius: 16,
               backgroundColor: AppColors.brand50,
               child: Text(
-                _initials(user?.name ?? '?'),
+                initials(user?.name ?? '?'),
                 style: const TextStyle(
                   color: AppColors.brand,
                   fontWeight: FontWeight.w700,
@@ -194,12 +304,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
-  String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return (parts.first[0] + parts.last[0]).toUpperCase();
-  }
 }
 
 // Placeholder builder for the synthetic "More" destination (its page is built

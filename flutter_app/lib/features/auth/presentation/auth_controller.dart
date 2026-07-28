@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/notifications/push_service.dart';
+import '../../../core/realtime/realtime_service.dart';
 import '../../../core/storage/token_storage.dart';
 import '../data/auth_repository.dart';
 import '../domain/app_user.dart';
@@ -52,6 +54,11 @@ class AuthController extends AsyncNotifier<AppUser?> {
     } catch (_) {
       // Best-effort audit call; local sign-out proceeds regardless.
     }
+    // Drop the realtime stream and any notifications this user left on the
+    // device before clearing the token — a shared phone must not keep
+    // receiving the previous account's alerts.
+    ref.read(realtimeServiceProvider).stop();
+    await ref.read(pushServiceProvider).clear();
     await _tokens.clear();
     state = const AsyncData(null);
   }

@@ -12,3 +12,6 @@ numpy>=2.1
 scikit-learn>=1.5
 scipy>=1.14
 joblib>=1.4
+
+# Test-only. Run from intelligence/:  python -m pytest
+pytest>=8.0

@@ -19,6 +19,7 @@ import face from './face.routes.js';
 import presence from './presence/index.js';
 import school from './school.routes.js';
 import actions from './actions.routes.js';
+import notices from './notices.routes.js';
 
 const api = Router();
 
@@ -42,5 +43,6 @@ api.use('/face', face);
 api.use('/presence', presence);
 api.use('/school', school);
 api.use('/actions', actions);
+api.use('/notices', notices);
 
 export default api;

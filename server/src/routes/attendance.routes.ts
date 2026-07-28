@@ -77,7 +77,12 @@ router.post(
     // reversible ATTENDANCE_MARKED event. A live PRESENT/LATE mark also writes
     // an AttendanceEvent so it shows in the Presence feed alongside face/QR marks.
     const existing = await prisma.attendance.findUnique({ where: { studentId_date: { studentId: body.studentId, date } } });
-    const record = await prisma.$transaction(async (tx) => {
+    // recordEvent defers the socket broadcast when it runs inside a
+    // transaction, handing back an emit() to fire once the write has actually
+    // committed. Dropping it (as this handler used to) meant marking a student
+    // updated the database but told nobody — no live refresh on the principal's
+    // dashboard, and no update on the parent's phone.
+    const { record, broadcast } = await prisma.$transaction(async (tx) => {
       const r = await tx.attendance.upsert({
         where: { studentId_date: { studentId: body.studentId, date } },
         create: { schoolId, studentId: body.studentId, classId: body.classId, date, status: body.status, source: 'MANUAL', markedById: req.user!.sub },
@@ -88,7 +93,7 @@ router.post(
           data: { schoolId, studentId: body.studentId, source: 'MANUAL', direction: 'ENTRY', verificationStatus: body.status === 'LATE' ? 'LATE' : 'VERIFIED', late: body.status === 'LATE', createdBy: req.user!.sub, notes: 'Manual daily mark' },
         });
       }
-      await recordEvent(
+      const recorded = await recordEvent(
         {
           schoolId,
           type: 'ATTENDANCE_MARKED',
@@ -100,8 +105,9 @@ router.post(
         },
         tx,
       );
-      return r;
+      return { record: r, broadcast: recorded.emit };
     });
+    broadcast();
 
     res.json({ record });
   }),

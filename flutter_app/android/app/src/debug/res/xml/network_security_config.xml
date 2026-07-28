@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG ONLY. Gradle merges this over the release policy for debug builds, so
+  it is never packaged into a release APK.
+
+  Development runs the backend over plain HTTP on the LAN (flutter run with a
+  MERIDIAN_API_BASE of http://192.168.x.x:4000), which the release policy
+  forbids. Cleartext is permitted here for that reason.
+
+  Note: Android's network-security-config matches domain entries against
+  hostnames, not IP ranges, so there is no way to allow "any private address"
+  specifically. Debug therefore allows cleartext broadly, and the protection
+  comes from this file applying to debug builds only; the release policy in
+  src/main/res/xml/network_security_config.xml refuses cleartext outright.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

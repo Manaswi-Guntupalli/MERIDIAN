@@ -29,6 +29,28 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
     return (max(0.0, centre - margin), min(1.0, centre + margin))
 
 
+def _paid_at(series: pd.Series) -> pd.Series:
+    """Payment timestamps as tz-naive datetimes.
+
+    Prisma stores DateTime in SQLite as epoch MILLISECONDS, so the column
+    arrives as int64. `pd.to_datetime` on a bare integer assumes nanoseconds
+    and lands every payment in 1970 — which made the recorded payment delay
+    read as ~-20,000 days. Numeric columns therefore need an explicit unit;
+    string columns (other drivers, or a Postgres migration) are parsed as
+    timestamps and flattened to tz-naive so they can be differenced against
+    the date-only due date.
+    """
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_datetime(series, unit="ms", errors="coerce")
+    parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    return parsed.dt.tz_localize(None)
+
+
+def _due_at(series: pd.Series) -> pd.Series:
+    """Due dates are date-only strings; compare on the day, tz-naive."""
+    return pd.to_datetime(series.astype(str).str[:10], errors="coerce")
+
+
 def _partition(frame: pd.DataFrame):
     """Yield (label, rows) for the not-yet-due set plus each past-due band.
 
@@ -103,9 +125,7 @@ def build(frames: dict, anchor_date: str) -> dict:
     behaviour = None
     if has_history:
         pay = payments.merge(fees[["id", "dueDate", "studentId"]], left_on="feeId", right_on="id")
-        pay["delay_days"] = (
-            pd.to_datetime(pay["paidAt"]) - pd.to_datetime(pay["dueDate"].str[:10])
-        ).dt.days
+        pay["delay_days"] = (_paid_at(pay["paidAt"]) - _due_at(pay["dueDate"])).dt.days
         per = pay.groupby("studentId")["delay_days"].agg(["mean", "std", "count"]).reset_index()
         behaviour = {
             "students_with_history": int(len(per)),

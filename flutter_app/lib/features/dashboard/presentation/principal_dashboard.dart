@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/format.dart';
 import '../../../shared/ui/ui.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../data/dashboard_repository.dart';
@@ -35,7 +36,7 @@ class PrincipalDashboard extends ConsumerWidget {
           MPageHeader(
             overline: user?.schoolName ?? 'Meridian',
             title: 'Overview',
-            subtitle: 'Good ${_dayPart()}, ${user?.name.split(' ').first ?? ''}.',
+            subtitle: _greeting(user?.name),
           ),
           statsAsync.when(
             loading: () => const Padding(
@@ -51,6 +52,16 @@ class PrincipalDashboard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// "Good afternoon, Kavita." — the honorific is dropped (greeting on the raw
+  /// first token produced "Good afternoon, Dr.."), and the full stop is never
+  /// doubled for a name that already ends in one.
+  String _greeting(String? name) {
+    final part = 'Good ${_dayPart()}';
+    final who = name == null ? '' : firstName(name).trim();
+    if (who.isEmpty) return '$part.';
+    return who.endsWith('.') ? '$part, $who' : '$part, $who.';
   }
 
   String _dayPart() {
@@ -292,7 +303,10 @@ class _HealthCard extends ConsumerWidget {
     final engine = (intel != null && intel.online) ? intel.payload!.health : null;
     final bool fromEngine = engine?.overall != null;
 
-    final h = fromEngine ? engine!.overall!.round() : stats.health;
+    // Show the engine's score exactly as the web does — HealthGauge renders the
+    // raw value, so rounding here made the phone read 82 where the browser read
+    // 82.2 for the same school. Thresholds still compare the true number.
+    final num h = fromEngine ? engine!.overall! : stats.health;
     final (label, accent) = h >= 85
         ? ('Excellent', MAccent.mint)
         : h >= 70
@@ -310,7 +324,9 @@ class _HealthCard extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text('$h', style: AppType.display(46, weight: FontWeight.w600, letterSpacing: 0)),
+              Text(scoreLabel(h),
+                  style: AppType.display(46,
+                      weight: FontWeight.w600, letterSpacing: 0)),
               const SizedBox(width: 6),
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),

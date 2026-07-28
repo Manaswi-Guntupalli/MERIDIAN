@@ -4,7 +4,9 @@ import { emitToSchool } from '../lib/socket.js';
 
 export interface AILogInput {
   schoolId: string;
-  engine: 'LUMEN' | 'KAIROS' | 'FORESIGHT' | 'COPILOT' | 'PRESENCE';
+  // Widened for AI Notice. `AILog.engine` is already a free-text column, so
+  // this is a type change only — no migration.
+  engine: 'LUMEN' | 'KAIROS' | 'FORESIGHT' | 'COPILOT' | 'PRESENCE' | 'NOTICE';
   action: string;
   reason?: string;
   confidence?: number;

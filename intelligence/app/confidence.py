@@ -15,6 +15,7 @@ vibes. Components multiply because each is a probability-like discount:
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -33,9 +34,22 @@ def sample_factor(n: int, k: int = 8) -> float:
     return n / (n + k) if n > 0 else 0.0
 
 
+def _clamp01(x: float) -> float:
+    """Clamp to [0,1], treating a non-finite input as no signal.
+
+    Statistical routines legitimately return NaN for degenerate inputs (a
+    zero-variance regression, an empty slice). NaN must never reach the
+    rounding below — `round(nan)` raises, which would take down the whole
+    engine over one undefined sub-score.
+    """
+    if not math.isfinite(x):
+        return 0.0
+    return min(max(x, 0.0), 1.0)
+
+
 def build(signal: float, completeness: float, n: int, basis: str, k: int = 8) -> Confidence:
-    signal = min(max(signal, 0.0), 1.0)
-    completeness = min(max(completeness, 0.0), 1.0)
+    signal = _clamp01(signal)
+    completeness = _clamp01(completeness)
     sf = sample_factor(n, k)
     value = round(100 * signal * completeness * sf)
     explanation = (

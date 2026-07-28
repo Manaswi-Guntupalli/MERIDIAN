@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   History,
   Bot,
+  Megaphone,
   FileBarChart,
   Bell,
   SlidersHorizontal,
@@ -54,6 +55,7 @@ export const NAV: NavItem[] = [
   { to: '/trust', label: 'Time Machine', icon: History, roles: ADMIN, group: 'Trust Core' },
   { to: '/users', label: 'Users & Access', icon: UserCog, roles: ADMIN, group: 'Trust Core' },
   { to: '/reports', label: 'AI Reports', icon: FileBarChart, roles: ADMIN, group: 'Trust Core' },
+  { to: '/notices', label: 'AI Notice', icon: Megaphone, roles: STAFF, group: 'Trust Core' },
   { to: '/emergency', label: 'Emergency', icon: ShieldAlert, roles: STAFF, group: 'Trust Core' },
   { to: '/notifications', label: 'Notifications', icon: Bell, roles: ALL, group: 'Trust Core' },
 
@@ -76,6 +78,7 @@ export const ROUTE_ROLES: Record<string, Role[]> = {
   '/presence': STAFF,
   '/trust': ADMIN,
   '/reports': ADMIN,
+  '/notices': STAFF,
   '/emergency': STAFF,
   '/notifications': ALL,
   '/settings': SUPER,

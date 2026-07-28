@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/util/format.dart';
 import '../../../shared/ui/ui.dart';
 import '../data/notifications_repository.dart';
+import 'notification_detail_screen.dart';
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
@@ -68,7 +69,10 @@ class NotificationsScreen extends ConsumerWidget {
                       for (final n in feed.items) ...[
                         _NotificationTile(
                           n: n,
+                          // Open it first — the read receipt is bookkeeping and
+                          // must never delay the tap that shows the text.
                           onTap: () async {
+                            await openNotification(context, n);
                             if (!n.read) {
                               await ref
                                   .read(notificationsRepositoryProvider)
@@ -109,7 +113,7 @@ class _NotificationTile extends StatelessWidget {
               color: c.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(_icon(n.category), color: c, size: 18),
+            child: Icon(notificationIcon(n.category), color: c, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -139,11 +143,32 @@ class _NotificationTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text(n.body,
-                    style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.slate600)),
+                // A preview, not the whole thing: a long school notice would
+                // otherwise push every other alert off the screen. The full
+                // text is one tap away.
+                Text(
+                  n.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 13, height: 1.4, color: AppColors.slate600),
+                ),
                 const SizedBox(height: 6),
-                Text(timeAgo(n.createdAt),
-                    style: const TextStyle(fontSize: 11.5, color: AppColors.slate400)),
+                Row(
+                  children: [
+                    Text(timeAgo(n.createdAt),
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.slate400)),
+                    const Spacer(),
+                    const Text('Read',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.brand)),
+                    const Icon(Icons.chevron_right,
+                        size: 15, color: AppColors.brand),
+                  ],
+                ),
               ],
             ),
           ),
@@ -152,11 +177,15 @@ class _NotificationTile extends StatelessWidget {
     );
   }
 
-  IconData _icon(String? category) => switch (category) {
-        'ATTENDANCE' => Icons.fact_check_outlined,
-        'SECURITY' => Icons.shield_outlined,
-        'TIMETABLE' => Icons.calendar_month_outlined,
-        'FEES' => Icons.account_balance_wallet_outlined,
-        _ => Icons.notifications_outlined,
-      };
 }
+
+/// Shared with the detail page so a notification keeps the same face wherever
+/// it is shown.
+IconData notificationIcon(String? category) => switch (category) {
+      'ATTENDANCE' => Icons.fact_check_outlined,
+      'SECURITY' => Icons.shield_outlined,
+      'TIMETABLE' => Icons.calendar_month_outlined,
+      'FEES' => Icons.account_balance_wallet_outlined,
+      'NOTICE' => Icons.campaign_outlined,
+      _ => Icons.notifications_outlined,
+    };

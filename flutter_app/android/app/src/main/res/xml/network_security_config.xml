@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release network policy: HTTPS only.
+
+  Cleartext HTTP is refused outright, so a release build cannot be pointed at
+  an unencrypted endpoint by a hostile network (or by a mistyped
+  MERIDIAN_API_BASE). Debug builds override this file with a permissive
+  variant under src/debug/ so LAN development against http://192.168.x.x:4000
+  keeps working; that override is not packaged into a release APK.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
