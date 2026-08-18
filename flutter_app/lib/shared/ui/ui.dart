@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -25,34 +26,51 @@ extension MAccentColor on MAccent {
       };
 }
 
-/// Web `.card` — white paper surface, hairline border, 14px radius, soft shadow.
+/// Web `.card` / `.card-lead` — white paper, hairline border, 14px radius.
+///
+/// Two elevations and only two. `lead: true` marks the one card a screen is
+/// actually about: it sits higher off the page and holds more air, so the eye
+/// has somewhere to land first. Each level pairs a tight contact shadow with a
+/// wider ambient one — without the contact layer a card reads as a floating
+/// rectangle rather than paper.
 class MCard extends StatelessWidget {
   const MCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(20),
     this.onTap,
+    this.lead = false,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
+  final bool lead;
+
+  static const List<BoxShadow> _resting = [
+    BoxShadow(color: Color(0x0A1C201F), blurRadius: 2, offset: Offset(0, 1)),
+  ];
+  static const List<BoxShadow> _raised = [
+    BoxShadow(color: Color(0x0D1C201F), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(
+        color: Color(0x121C201F),
+        blurRadius: 16,
+        spreadRadius: -4,
+        offset: Offset(0, 6)),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final content = Padding(padding: padding, child: child);
+    final content = Padding(
+      padding: lead ? const EdgeInsets.all(22) : padding,
+      child: child,
+    );
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: AppRadii.cardR,
         border: Border.all(color: AppColors.line),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A1C201F),
-            blurRadius: 3,
-            offset: Offset(0, 1),
-          ),
-        ],
+        boxShadow: lead ? _raised : _resting,
       ),
       clipBehavior: Clip.antiAlias,
       child: onTap == null
@@ -161,7 +179,7 @@ class MChip extends StatelessWidget {
 /// web uses, with a built-in busy state so callers never hand-roll a spinner.
 enum MButtonKind { primary, ghost, danger }
 
-class MButton extends StatelessWidget {
+class MButton extends StatefulWidget {
   const MButton(
     this.label, {
     super.key,
@@ -180,7 +198,20 @@ class MButton extends StatelessWidget {
   final bool dense;
 
   @override
+  State<MButton> createState() => _MButtonState();
+}
+
+class _MButtonState extends State<MButton> {
+  bool _down = false;
+
+  @override
   Widget build(BuildContext context) {
+    final label = widget.label;
+    final icon = widget.icon;
+    final kind = widget.kind;
+    final busy = widget.busy;
+    final dense = widget.dense;
+    final onPressed = widget.onPressed;
     final bool disabled = busy || onPressed == null;
     final (Color fg, Color bg, Color border) = switch (kind) {
       MButtonKind.primary => (Colors.white, AppColors.brand, AppColors.brand),
@@ -191,13 +222,20 @@ class MButton extends StatelessWidget {
         ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
         : const EdgeInsets.symmetric(horizontal: 16, vertical: 12);
 
-    return Opacity(
+    // The press travel is a hair under one percent — enough for the hand to
+    // feel, too little for the eye to catch.
+    return AnimatedScale(
+      scale: _down && !disabled ? 0.985 : 1,
+      duration: AppMotion.fast,
+      curve: AppMotion.easeOut,
+      child: Opacity(
       opacity: disabled ? 0.55 : 1,
       child: Material(
         color: bg,
         borderRadius: BorderRadius.circular(AppRadii.control),
         child: InkWell(
           onTap: disabled ? null : onPressed,
+          onHighlightChanged: (v) => setState(() => _down = v),
           borderRadius: BorderRadius.circular(AppRadii.control),
           child: Container(
             padding: pad,
@@ -232,8 +270,80 @@ class MButton extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
+}
+
+/// A number that settles into place instead of appearing — the mobile twin of
+/// the web's `CountUp`.
+///
+/// It counts once, on first arrival. A figure that re-counts on every refresh
+/// turns a dashboard into a slot machine, so later values simply replace the
+/// one on screen.
+class MCountUp extends StatefulWidget {
+  const MCountUp(
+    this.value, {
+    super.key,
+    this.style,
+    this.decimals = 0,
+    this.duration = AppMotion.sweep,
+    this.format,
+  });
+
+  final num value;
+  final TextStyle? style;
+  final int decimals;
+  final Duration duration;
+  final String Function(num)? format;
+
+  @override
+  State<MCountUp> createState() => _MCountUpState();
+}
+
+class _MCountUpState extends State<MCountUp>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: widget.duration);
+  late Animation<double> _a =
+      Tween<double>(begin: 0, end: widget.value.toDouble())
+          .animate(CurvedAnimation(parent: _c, curve: AppMotion.easeOut));
+  bool _settled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _c.forward().then((_) => _settled = true);
+  }
+
+  @override
+  void didUpdateWidget(covariant MCountUp old) {
+    super.didUpdateWidget(old);
+    if (old.value == widget.value) return;
+    if (_settled) {
+      // Already showing a real figure — replace it, don't re-count.
+      setState(() => _a = AlwaysStoppedAnimation(widget.value.toDouble()));
+    } else {
+      _a = Tween<double>(begin: 0, end: widget.value.toDouble())
+          .animate(CurvedAnimation(parent: _c, curve: AppMotion.easeOut));
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _a,
+        builder: (_, _) {
+          final v = _a.value;
+          final text = widget.format?.call(v) ?? v.toStringAsFixed(widget.decimals);
+          return Text(text, style: widget.style);
+        },
+      );
 }
 
 /// Web `StatTile` — a quiet accent rail, an uppercase label, a big serif value,

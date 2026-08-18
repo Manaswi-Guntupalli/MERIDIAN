@@ -63,11 +63,15 @@ export default {
       },
       boxShadow: {
         // Layered, physical depth — no coloured glow.
+        //
+        // Every level pairs a tight contact shadow (the edge where the paper
+        // meets the desk) with a wider ambient one. Without the contact layer a
+        // card reads as a floating rectangle; with it, it reads as paper.
         xs: '0 1px 2px rgba(28, 32, 31, 0.04)',
-        sm: '0 1px 2px rgba(28, 32, 31, 0.05), 0 1px 3px rgba(28, 32, 31, 0.04)',
-        md: '0 2px 4px rgba(28, 32, 31, 0.04), 0 4px 12px rgba(28, 32, 31, 0.06)',
-        lg: '0 4px 8px rgba(28, 32, 31, 0.04), 0 12px 28px rgba(28, 32, 31, 0.08)',
-        xl: '0 8px 16px rgba(28, 32, 31, 0.05), 0 24px 48px rgba(28, 32, 31, 0.10)',
+        sm: '0 1px 1px rgba(28, 32, 31, 0.04), 0 2px 6px -1px rgba(28, 32, 31, 0.05)',
+        md: '0 1px 2px rgba(28, 32, 31, 0.05), 0 6px 16px -4px rgba(28, 32, 31, 0.07)',
+        lg: '0 2px 4px rgba(28, 32, 31, 0.05), 0 14px 32px -8px rgba(28, 32, 31, 0.10)',
+        xl: '0 4px 8px rgba(28, 32, 31, 0.05), 0 28px 56px -12px rgba(28, 32, 31, 0.14)',
         ring: '0 0 0 4px rgba(14, 124, 107, 0.12)',
       },
       keyframes: {

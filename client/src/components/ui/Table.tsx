@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { DUR, EASE_OUT, stagger } from '@/constants/motion';
 
 /**
  * The one table in the product. Deliberately NOT a bordered grid — rows are
@@ -38,14 +39,14 @@ export function Table<T>({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left">
           <thead>
-            <tr className="border-b border-line">
+            <tr className="border-b border-line bg-ink-800/25">
               {columns.map((c) => (
                 <th
                   key={c.key}
                   scope="col"
                   style={{ width: c.width }}
                   className={cn(
-                    'whitespace-nowrap px-4 py-2.5 text-[0.66rem] font-semibold uppercase tracking-[0.08em] text-slate-400 first:pl-5 last:pr-5',
+                    'whitespace-nowrap px-4 py-3 text-[0.66rem] font-semibold uppercase tracking-[0.1em] text-slate-400 first:pl-5 last:pr-5',
                     alignOf(c.align),
                   )}
                 >
@@ -60,15 +61,15 @@ export function Table<T>({
                 key={rowKey(row, i)}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: Math.min(i * 0.012, 0.2), duration: 0.2 }}
+                transition={{ delay: stagger(i, 0.012), duration: DUR.fast, ease: EASE_OUT }}
                 onClick={() => onRowClick?.(row)}
                 className={cn(
-                  'border-b border-line/70 last:border-0 transition-colors',
-                  onRowClick && 'cursor-pointer hover:bg-ink-800/70',
+                  'group border-b border-line/70 last:border-0',
+                  onRowClick && 't-row cursor-pointer',
                 )}
               >
                 {columns.map((c) => (
-                  <td key={c.key} className={cn('px-4 py-3 align-middle text-[0.84rem] text-slate-600 first:pl-5 last:pr-5', alignOf(c.align))}>
+                  <td key={c.key} className={cn('px-4 py-3.5 align-middle text-[0.84rem] text-slate-600 first:pl-5 last:pr-5', alignOf(c.align))}>
                     {c.cell(row, i)}
                   </td>
                 ))}
@@ -87,14 +88,14 @@ export function CellIdentity({ initials, title, sub, tone = 'brand' }: { initial
     <div className="flex items-center gap-3">
       <span
         className={cn(
-          'grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[0.63rem] font-bold',
+          'grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[0.63rem] font-bold transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105',
           tone === 'brand' ? 'bg-brand-50 text-brand-700' : 'bg-ink-800 text-slate-500',
         )}
       >
         {initials}
       </span>
       <span className="min-w-0">
-        <span className="block truncate font-semibold text-slate-900">{title}</span>
+        <span className="block truncate font-semibold text-slate-900 transition-colors duration-150 group-hover:text-brand-700">{title}</span>
         {sub && <span className="block truncate text-[0.72rem] text-slate-400">{sub}</span>}
       </span>
     </div>

@@ -152,11 +152,14 @@ class IntelHealth {
   final List<IntelHealthCategory> categories;
   final String method;
 
-  /// The web shows the four heaviest categories that actually have data.
-  List<IntelHealthCategory> get topCategories {
+  /// Every category the engine actually scored, heaviest first — the same set
+  /// the web renders. A category that abstained for want of data (too few
+  /// documents, no attendance captured yet) has no score and is simply absent;
+  /// drawing it as a low bar would report a weakness the engine never found.
+  List<IntelHealthCategory> get scoredCategories {
     final withData = categories.where((c) => c.score != null).toList()
       ..sort((a, b) => b.weight.compareTo(a.weight));
-    return withData.take(4).toList();
+    return withData;
   }
 
   factory IntelHealth.fromJson(Map<String, dynamic> j) {

@@ -25,6 +25,20 @@ _DEFAULT_WEIGHTS = {
 }
 
 
+# A category scored from a handful of records is noise, not signal: three
+# documents with two in the review queue produced a "documents: 27.5" that moved
+# the headline score while saying nothing about how the school runs. Below this
+# many scored documents the category reports no score and is left out of the
+# weighted average entirely (the remaining weights renormalise).
+MIN_DOCUMENTS_SCORED = 10
+
+# Face enrollment is a rollout measure, not an operating result, so it does not
+# scale the operations score. It is still reported: below this share of the
+# roster the primary capture method cannot reach most students, which the
+# school should be told plainly.
+FACE_COVERAGE_TARGET = 0.90
+
+
 def health_weights() -> dict[str, float]:
     raw = os.environ.get("HEALTH_WEIGHTS")
     if not raw:

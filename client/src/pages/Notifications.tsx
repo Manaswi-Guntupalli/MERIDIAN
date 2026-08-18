@@ -5,8 +5,9 @@ import { Bell, CheckCheck, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
 import PageHeader from '@/components/PageHeader';
-import { Card, Badge, LoadingScreen, EmptyState } from '@/components/ui';
+import { Card, Badge, EmptyState, Skeleton } from '@/components/ui';
 import { severityColor, timeAgo } from '@/lib/utils';
+import { dialogMotion, fadeUp, scrimMotion } from '@/constants/motion';
 import type { NotificationItem } from '@/types';
 
 // The feed shows a two-line preview of each notification. A school notice runs
@@ -27,7 +28,22 @@ export default function Notifications() {
     if (!n.read) readOne.mutate(n.id);
   };
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Card key={i} className="flex items-start gap-3">
+            <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3 w-1/3 rounded" />
+              <Skeleton className="h-2.5 w-2/3 rounded" />
+              <Skeleton className="h-2.5 w-16 rounded" />
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -41,7 +57,7 @@ export default function Notifications() {
       {data?.notifications.length ? (
         <div className="space-y-2">
           {data.notifications.map((n, i) => (
-            <motion.div key={n.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}>
+            <motion.div key={n.id} {...fadeUp(i)}>
               <Card
                 role="button"
                 tabIndex={0}
@@ -56,7 +72,7 @@ export default function Notifications() {
                     {!n.read && <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />}
                     <Badge className="ml-auto">{n.category}</Badge>
                   </div>
-                  <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-sm text-slate-500">{n.body}</div>
+                  <div className="mt-1 line-clamp-2 whitespace-pre-line text-[0.82rem] leading-relaxed text-slate-500">{n.body}</div>
                   <div className="mt-1 flex items-center gap-2">
                     <span className="text-[0.65rem] text-slate-400">{timeAgo(n.createdAt)}</span>
                     {n.action && <Link to={n.action.to} onClick={(e) => e.stopPropagation()} className="text-[0.7rem] font-semibold text-brand-400 hover:underline">{n.action.label} →</Link>}
@@ -89,24 +105,22 @@ function NotificationDetail({ n, onClose }: { n: NotificationItem | null; onClos
     <AnimatePresence>
       {n && (
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          {...scrimMotion}
           onClick={onClose}
-          className="fixed inset-0 z-50 grid place-items-center bg-[#2A2621]/25 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 grid place-items-center bg-[#2A2621]/25 p-4 backdrop-blur-[3px]"
         >
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            {...dialogMotion}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={n.title}
-            className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-xl"
+            className="surface-over max-h-[80vh] w-full max-w-2xl overflow-y-auto p-7"
           >
             <div className="flex items-start gap-3">
               <span className={`mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg border ${severityColor[n.severity]}`}><Bell className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1">
-                <h2 className="font-display text-xl font-semibold text-slate-900">{n.title}</h2>
+                <h2 className="font-display text-xl font-semibold tracking-[-0.015em] text-slate-900">{n.title}</h2>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-[0.7rem] text-slate-400">{timeAgo(n.createdAt)}</span>
                   <Badge>{n.category}</Badge>

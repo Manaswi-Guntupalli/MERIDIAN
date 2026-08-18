@@ -84,6 +84,80 @@ class TestHealthScore:
         out = health.compute(_att(0.9), fin, TT_OK, DOCS_OK, OPS_OK)
         assert out["categories"]["finance"]["score"] == pytest.approx(100.0)
 
+    def test_every_category_states_the_period_it_describes(self):
+        """No category is a single-day figure, so each must say what it covers
+        rather than let the UI imply it is today's number."""
+        out = health.compute(_att(0.93), FIN_OK, TT_OK, DOCS_OK, OPS_OK)
+        for name, cat in out["categories"].items():
+            assert cat.get("window"), f"{name} does not state its window"
+
+    def test_scored_categories_are_listed(self):
+        out = health.compute(_att(0.93), FIN_OK, TT_OK, DOCS_OK, OPS_OK)
+        assert set(out["scoredCategories"]) == {
+            n for n, c in out["categories"].items() if c["score"] is not None}
+
+
+class TestOperationsMeasuresCaptureNotRollout:
+    """Operations answers "is attendance being captured cleanly?" — not "how
+    far has the face rollout got?". Coverage scaling capped a school with
+    flawless capture at 61/100 purely because few students were enrolled."""
+
+    def test_operations_is_exactly_capture_integrity(self):
+        out = health.compute(_att(0.9), FIN_OK, TT_OK, DOCS_OK,
+                             {"capture_integrity": 0.95, "enrollment_coverage": 0.8,
+                              "proxy_attempts": 0})
+        assert out["categories"]["operations"]["score"] == pytest.approx(95.0)
+
+    def test_enrollment_coverage_does_not_move_the_score(self):
+        clean = {"capture_integrity": 0.9958, "proxy_attempts": 0}
+        barely_rolled_out = health.compute(
+            _att(0.9), FIN_OK, TT_OK, DOCS_OK, {**clean, "enrollment_coverage": 0.0379})
+        fully_rolled_out = health.compute(
+            _att(0.9), FIN_OK, TT_OK, DOCS_OK, {**clean, "enrollment_coverage": 1.0})
+        assert (barely_rolled_out["categories"]["operations"]["score"]
+                == fully_rolled_out["categories"]["operations"]["score"]
+                == pytest.approx(99.6))
+
+    def test_proxy_attempts_lower_the_score(self):
+        """The one thing operations SHOULD react to: dirty captures."""
+        out = health.compute(_att(0.9), FIN_OK, TT_OK, DOCS_OK,
+                             {"capture_integrity": 0.5, "proxy_attempts": 10})
+        assert out["categories"]["operations"]["score"] == pytest.approx(50.0)
+
+    def test_no_captures_yet_abstains_rather_than_scoring_zero(self):
+        out = health.compute(_att(0.9), FIN_OK, TT_OK, DOCS_OK, {})
+        ops = out["categories"]["operations"]
+        assert ops["score"] is None and ops["contribution"] is None
+
+
+class TestDocumentsNeedsASample:
+    """Three documents with two in review produced "documents: 27.5", which
+    moved the school's headline score while describing nothing about it."""
+
+    def test_a_tiny_document_set_abstains(self):
+        out = health.compute(_att(0.9), FIN_OK, TT_OK,
+                             {"insufficient": False, "n_documents": 3, "review_queue": 2,
+                              "mean_overall_confidence": 0.8237}, OPS_OK)
+        docs = out["categories"]["documents"]
+        assert docs["score"] is None
+        assert docs["contribution"] is None
+        assert "3 document(s) processed" in docs["formula"]
+
+    def test_a_large_enough_set_is_scored(self):
+        out = health.compute(_att(0.9), FIN_OK, TT_OK,
+                             {"insufficient": False, "n_documents": 20, "review_queue": 2,
+                              "mean_overall_confidence": 0.9}, OPS_OK)
+        # 0.9 x (1 - 2/20) x 100
+        assert out["categories"]["documents"]["score"] == pytest.approx(81.0)
+
+    def test_abstaining_does_not_drag_the_overall_down(self):
+        few = health.compute(_att(0.9), FIN_OK, TT_OK,
+                             {"insufficient": False, "n_documents": 3, "review_queue": 3,
+                              "mean_overall_confidence": 0.5}, OPS_OK)["overall"]
+        none_at_all = health.compute(
+            _att(0.9), FIN_OK, TT_OK, {"insufficient": True}, OPS_OK)["overall"]
+        assert few == pytest.approx(none_at_all)
+
 
 def _candidate(**over):
     base = dict(id="act-x", title="Do a thing", detail="because", severity="WARNING",

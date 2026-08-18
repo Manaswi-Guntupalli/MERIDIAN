@@ -6,6 +6,8 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/ui/ui.dart';
+import '../../auth/presentation/auth_controller.dart';
+import '../../auth/domain/app_user.dart';
 import '../../family/data/family_repository.dart';
 
 /// Student self-marking by scanning the projector's session QR.
@@ -107,6 +109,31 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A QR carries only a short-lived session capability, never an identity.
+    // The server therefore accepts a phone scan only from a STUDENT account
+    // and derives the student record from its JWT. Showing the scanner to a
+    // principal/teacher used to end in the unhelpful API error
+    // "studentId is required" after a successful scan.
+    final user = ref.watch(currentUserProvider);
+    if (user?.role != UserRole.student) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        children: const [
+          MPageHeader(
+            overline: 'Presence',
+            title: 'Student account required',
+            subtitle: 'Sign out and use a student account before scanning an attendance QR.',
+          ),
+          MCard(
+            child: Text(
+              'The QR proves only that a live session exists. Meridian uses the signed-in student account to prove whose attendance is being marked, so staff and parent accounts cannot scan on a student’s behalf.',
+              style: TextStyle(fontSize: 13.5, height: 1.5, color: AppColors.slate700),
+            ),
+          ),
+        ],
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
       children: [

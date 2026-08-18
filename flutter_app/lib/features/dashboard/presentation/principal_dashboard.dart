@@ -94,7 +94,7 @@ class _DashboardBody extends ConsumerWidget {
         ],
 
         // ── School health ──
-        _HealthCard(stats: stats),
+        const HealthCard(),
         const SizedBox(height: 14),
 
         // ── Ranked actions from the intelligence engine (same panel as web) ──
@@ -222,19 +222,9 @@ class _DashboardBody extends ConsumerWidget {
               _attention('Uncovered classes today', stats.uncoveredToday, Icons.event_busy_outlined),
               _attention('Documents awaiting review', stats.docsInReview, Icons.description_outlined),
               _attention('Overdue fee accounts', stats.overdueCount, Icons.account_balance_wallet_outlined),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  const Icon(Icons.bolt_outlined, size: 16, color: AppColors.brand),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${stats.timeSavedHours} staff-hours saved by automation this week.',
-                      style: const TextStyle(fontSize: 12.5, color: AppColors.slate600),
-                    ),
-                  ),
-                ],
-              ),
+              // The "N staff-hours saved by automation" line was removed: it
+              // multiplied the ledger's action count by an invented 8 minutes
+              // each and presented the product as a measured saving.
             ],
           ),
         ),
@@ -289,68 +279,161 @@ class _DashboardBody extends ConsumerWidget {
   }
 }
 
-class _HealthCard extends ConsumerWidget {
-  const _HealthCard({required this.stats});
-  final DashboardStats stats;
+enum _HealthState { loading, offline, noData }
+
+/// Shown until the engine publishes a score. Deliberately not a number: a
+/// stand-in figure from another formula is what made the score change under
+/// the reader a second after the screen opened.
+class _HealthPlaceholder extends StatelessWidget {
+  const _HealthPlaceholder({required this.state});
+  final _HealthState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = switch (state) {
+      _HealthState.loading => 'Scoring live school data…',
+      _HealthState.offline =>
+        'Score unavailable — the intelligence engine is unreachable.',
+      _HealthState.noData => 'Not enough recorded data to score the school yet.',
+    };
+
+    return MCard(
+      lead: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const MSectionTitle(
+              overline: 'Operational health', title: 'School health'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('—',
+                          style: AppType.display(46,
+                              weight: FontWeight.w600, letterSpacing: 0)),
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text('/100',
+                            style: TextStyle(fontSize: 15, color: AppColors.slate400)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (state == _HealthState.loading) ...[
+                const SizedBox(width: 10),
+                const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          for (var i = 0; i < 4; i++)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: MSkeleton(height: 8, radius: 999),
+            ),
+          const SizedBox(height: 2),
+          Text(message,
+              style: const TextStyle(fontSize: 11, color: AppColors.slate400)),
+        ],
+      ),
+    );
+  }
+}
+
+/// School health, sourced only from the intelligence engine.
+class HealthCard extends ConsumerWidget {
+  const HealthCard({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Same precedence as the web dashboard: the engine's score and weighted
-    // categories when it is online, the server's simpler breakdown only as a
-    // fallback. Two different formulas showing two different numbers for the
-    // same school is what makes a dashboard untrustworthy.
-    final intel = ref.watch(intelligenceProvider).value;
+    // The intelligence engine is the only source of this number. The server
+    // used to publish a second one from different categories and different
+    // weights, and whichever arrived first was drawn — so the score visibly
+    // changed a second after the screen opened. Until the engine answers,
+    // nothing stands in for it.
+    final async = ref.watch(intelligenceProvider);
+    final intel = async.value;
     final engine = (intel != null && intel.online) ? intel.payload!.health : null;
-    final bool fromEngine = engine?.overall != null;
+    final double? overall = engine?.overall;
 
-    // Show the engine's score exactly as the web does — HealthGauge renders the
-    // raw value, so rounding here made the phone read 82 where the browser read
-    // 82.2 for the same school. Thresholds still compare the true number.
-    final num h = fromEngine ? engine!.overall! : stats.health;
-    final (label, accent) = h >= 85
+    if (overall == null) {
+      return _HealthPlaceholder(
+        state: async.isLoading
+            ? _HealthState.loading
+            : engine == null
+                ? _HealthState.offline
+                : _HealthState.noData,
+      );
+    }
+
+    // Rendered raw, as the web does: rounding here made the phone read 82
+    // where the browser read 82.2 for the same school.
+    final (label, accent) = overall >= 85
         ? ('Excellent', MAccent.mint)
-        : h >= 70
+        : overall >= 70
             ? ('Healthy', MAccent.brand)
-            : h >= 50
+            : overall >= 50
                 ? ('Fair', MAccent.amber)
                 : ('Needs attention', MAccent.rose);
-    final b = stats.breakdown;
 
     return MCard(
+      lead: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const MSectionTitle(overline: 'Operational health', title: 'School health'),
+          // The figure yields before the verdict does: "Needs attention" beside
+          // a three-digit score overflowed a narrow phone, and a clipped status
+          // is worse than a slightly smaller number. Same rule as StatTile.
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(scoreLabel(h),
-                  style: AppType.display(46,
-                      weight: FontWeight.w600, letterSpacing: 0)),
-              const SizedBox(width: 6),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text('/100', style: const TextStyle(fontSize: 15, color: AppColors.slate400)),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      MCountUp(
+                        overall,
+                        decimals: overall == overall.roundToDouble() ? 0 : 1,
+                        style: AppType.display(46,
+                            weight: FontWeight.w600, letterSpacing: 0),
+                      ),
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text('/100',
+                            style: TextStyle(fontSize: 15, color: AppColors.slate400)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               MBadge(label, severity: accent == MAccent.mint || accent == MAccent.brand ? 'SUCCESS' : accent == MAccent.amber ? 'WARNING' : 'CRITICAL'),
             ],
           ),
           const SizedBox(height: 14),
-          if (fromEngine)
-            for (final c in engine!.topCategories)
-              _bar(c.label, c.score!.round())
-          else ...[
-            _bar('Attendance', b.attendance),
-            _bar('Finance', b.finance),
-            _bar('People', b.people),
-            _bar('Operations', b.operations),
-          ],
+          // Only categories the engine actually scored. One that abstains for
+          // want of data is absent, never drawn as a low bar.
+          for (final c in engine!.scoredCategories) _bar(c.label, c.score!.round()),
           const SizedBox(height: 2),
           Text(
-            fromEngine
-                ? 'Weighted across ${engine!.topCategories.length} categories by the intelligence engine.'
-                : 'Engine offline — showing the server’s basic breakdown.',
+            'Weighted across ${engine.scoredCategories.length} categories by the intelligence engine.',
             style: const TextStyle(fontSize: 11, color: AppColors.slate400),
           ),
         ],

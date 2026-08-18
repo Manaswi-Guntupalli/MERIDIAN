@@ -5,25 +5,10 @@ import '../../../core/network/dio_client.dart';
 
 // ── Models (from GET /dashboard/stats and GET /presence/session) ──
 
-class HealthBreakdown {
-  const HealthBreakdown({
-    required this.attendance,
-    required this.finance,
-    required this.people,
-    required this.operations,
-  });
-  final int attendance;
-  final int finance;
-  final int people;
-  final int operations;
-
-  factory HealthBreakdown.fromJson(Map<String, dynamic> j) => HealthBreakdown(
-        attendance: (j['attendance'] ?? 0).round(),
-        finance: (j['finance'] ?? 0).round(),
-        people: (j['people'] ?? 0).round(),
-        operations: (j['operations'] ?? 0).round(),
-      );
-}
+// School health is deliberately absent from this model. The server no longer
+// publishes a score of its own — it belongs to the intelligence engine alone
+// (see IntelHealth in intelligence_repository.dart). Two formulas for one
+// number is how the same school read 82 here and 82.2 in the browser.
 
 class DashboardStats {
   const DashboardStats({
@@ -36,10 +21,7 @@ class DashboardStats {
     required this.outstanding,
     required this.overdueCount,
     required this.docsInReview,
-    required this.health,
-    required this.breakdown,
     required this.feeCollectionRate,
-    required this.timeSavedHours,
     required this.uncoveredToday,
     required this.emergencyActive,
   });
@@ -53,10 +35,7 @@ class DashboardStats {
   final int outstanding;
   final int overdueCount;
   final int docsInReview;
-  final int health;
-  final HealthBreakdown breakdown;
   final int feeCollectionRate;
-  final int timeSavedHours;
   final int uncoveredToday;
   final bool emergencyActive;
 
@@ -70,11 +49,7 @@ class DashboardStats {
         outstanding: (j['outstanding'] ?? 0).round(),
         overdueCount: (j['overdueCount'] ?? 0) as int,
         docsInReview: (j['docsInReview'] ?? 0) as int,
-        health: (j['health'] ?? 0).round(),
-        breakdown: HealthBreakdown.fromJson(
-            (j['healthBreakdown'] as Map<String, dynamic>?) ?? const {}),
         feeCollectionRate: (j['feeCollectionRate'] ?? 0).round(),
-        timeSavedHours: (j['timeSavedHours'] ?? 0) as int,
         uncoveredToday: (j['uncoveredToday'] ?? 0) as int,
         emergencyActive: (j['emergencyActive'] ?? false) as bool,
       );

@@ -1,9 +1,14 @@
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
+import { DUR, EASE_OUT } from '@/constants/motion';
 
 /**
- * The page's masthead. Serif title carries the voice; the eyebrow orients you;
- * generous bottom space lets the content breathe rather than crowding it.
+ * The page's masthead — the first thing the eye should land on.
+ *
+ * Hierarchy comes from three separate signals rather than size alone: the
+ * eyebrow is small, coloured and tracked out; the title is large, serif and
+ * optically tightened; the subtitle is quiet and measure-capped so it reads as
+ * a caption to the title instead of competing with it.
  */
 export default function PageHeader({
   overline,
@@ -18,15 +23,15 @@ export default function PageHeader({
 }) {
   return (
     <motion.header
-      initial={{ opacity: 0, y: -6 }}
+      initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+      transition={{ duration: DUR.slow, ease: EASE_OUT }}
+      className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
     >
       <div className="min-w-0">
-        {overline && <div className="eyebrow mb-1.5">{overline}</div>}
+        {overline && <div className="eyebrow mb-2">{overline}</div>}
         <h1 className="title-xl">{title}</h1>
-        {subtitle && <p className="mt-2 max-w-2xl text-[0.9rem] leading-relaxed text-slate-500">{subtitle}</p>}
+        {subtitle && <p className="prose-quiet mt-2.5 max-w-[58ch]">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </motion.header>

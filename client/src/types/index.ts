@@ -54,11 +54,10 @@ export interface DashboardStats {
   outstanding: number;
   overdueCount: number;
   docsInReview: number;
-  health: number;
-  healthBreakdown: { attendance: number; finance: number; people: number; operations: number };
+  // School health is not here on purpose — it is the intelligence engine's
+  // metric alone (GET /dashboard/intelligence). See dashboard.routes.ts.
   feeCollectionRate: number;
   automatedActions: number;
-  timeSavedHours: number;
   uncoveredToday: number;
   emergencyActive: boolean;
 }

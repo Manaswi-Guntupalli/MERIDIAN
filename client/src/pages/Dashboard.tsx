@@ -5,7 +5,7 @@ import { useState } from 'react';
 import {
   GraduationCap, Users, CalendarCheck, Wallet, Activity, ArrowUpRight,
   AlertTriangle, CalendarClock, Sparkles, RefreshCw, ChevronLeft, ChevronRight,
-  Clock, DoorOpen, User as UserIcon, Bell,
+  Clock, DoorOpen, User as UserIcon, Bell, UserX,
 } from 'lucide-react';
 import {
   AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid,
@@ -15,10 +15,11 @@ import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
 import { StatTile, Card, Badge, Meter, LoadingScreen, EmptyState, ConfidenceRing } from '@/components/ui';
-import HealthGauge from '@/components/HealthGauge';
+import HealthGauge, { HealthGaugePlaceholder } from '@/components/HealthGauge';
 import { inr, pct, severityColor, cn, confColor, timeAgo, firstName } from '@/lib/utils';
 import { useSchoolStatus } from '@/hooks/useSchoolStatus';
 import { T, CHART } from '@/constants/theme';
+import { DUR, EASE_OUT, fadeUp } from '@/constants/motion';
 import type { DashboardStats } from '@/types';
 
 // ── Intelligence engine payload (mirrors the Python service's response;
@@ -46,7 +47,7 @@ interface IntelPayload {
   meta: { computedAt: string; anchorDate: string; engineVersion: string; llmPolished: boolean };
   healthScore: {
     overall: number | null; weights: Record<string, number>; method: string;
-    categories: Record<string, { score: number | null; formula: string; weight: number; contribution: number | null }>;
+    categories: Record<string, { score: number | null; formula: string; window?: string; weight: number; contribution: number | null }>;
   };
   insights: IntelInsight[];
   recommendations: IntelRecommendation[];
@@ -223,29 +224,35 @@ function StaffDashboard() {
       {/* ── Hero band: one feature panel, deliberately NOT another equal card.
              The health figure is the largest thing on the page; the KPI rail
              sits beneath it as a hairline-divided strip. ── */}
-      <section className="surface overflow-hidden">
-        <div className="grid gap-8 p-6 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] lg:p-7">
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DUR.slow, ease: EASE_OUT }}
+        className="surface-lead overflow-hidden"
+      >
+        <div className="grid gap-8 p-7 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] lg:gap-10 lg:p-9">
           <div className="flex items-center gap-7">
-            <HealthGauge
-              value={pl?.healthScore.overall ?? s.health}
-              subs={
-                pl
-                  ? Object.entries(pl.healthScore.categories)
-                      .filter(([, c]) => c.score != null)
-                      .sort((a, b) => b[1].weight - a[1].weight)
-                      .slice(0, 4)
-                      .map(([name, c]) => ({ label: name[0].toUpperCase() + name.slice(1), value: Math.round(c.score!) }))
-                  : [
-                      { label: 'Attendance', value: s.healthBreakdown.attendance },
-                      { label: 'Finance', value: s.healthBreakdown.finance },
-                      { label: 'People', value: s.healthBreakdown.people },
-                      { label: 'Operations', value: s.healthBreakdown.operations },
-                    ]
-              }
-            />
+            {/* One owner for this number. A category that abstains for want of
+                data is left out entirely rather than shown as a low bar. */}
+            {pl && pl.healthScore.overall != null ? (
+              <HealthGauge
+                value={pl.healthScore.overall}
+                subs={Object.entries(pl.healthScore.categories)
+                  .filter(([, c]) => c.score != null)
+                  .sort((a, b) => b[1].weight - a[1].weight)
+                  .map(([name, c]) => ({
+                    label: name[0].toUpperCase() + name.slice(1),
+                    value: Math.round(c.score!),
+                    // Hover states the period — no category is a single-day figure.
+                    hint: c.window ? `${c.window} — ${c.formula}` : c.formula,
+                  }))}
+              />
+            ) : (
+              <HealthGaugePlaceholder state={intelLoading ? 'loading' : pl ? 'nodata' : 'offline'} />
+            )}
           </div>
 
-          <div className="flex flex-col justify-center border-line lg:border-l lg:pl-8">
+          <div className="flex flex-col justify-center border-line lg:border-l lg:pl-10">
             {school.phase !== 'LOADING' && (
               <div className="mb-2 flex items-center gap-1.5 text-[0.72rem] font-medium text-slate-400">
                 <span className={cn('h-1.5 w-1.5 rounded-full', school.tone === 'mint' ? 'bg-mint-400' : school.tone === 'cyan' ? 'bg-cyan-400' : school.tone === 'amber' ? 'bg-amber-400' : 'bg-slate-300', school.inSession && 'animate-pulseGlow')} />
@@ -293,9 +300,19 @@ function StaffDashboard() {
           </div>
         </div>
 
-        {/* KPI rail — a strip, not four more cards */}
-        <div className="grid grid-cols-2 divide-x divide-line border-t border-line lg:grid-cols-4">
-          <Kpi icon={<Clock className="h-3.5 w-3.5" />} tone="text-brand-500" label="Admin hours saved" value={`${s.timeSavedHours}h`} sub={`${s.automatedActions} automated actions`} />
+        {/* KPI rail — a strip, not four more cards. Sits in a well so it
+            visibly supports the health panel instead of rivalling it. */}
+        <div className="grid grid-cols-2 divide-x divide-line border-t border-line bg-ink-800/30 lg:grid-cols-4">
+          {/* Was "Admin hours saved" — ledger actions x an invented 8 minutes
+              each, presented as a measured saving. Classes left uncovered is a
+              fact about how the school is running right now. */}
+          <Kpi
+            icon={<UserX className="h-3.5 w-3.5" />}
+            tone={s.uncoveredToday ? 'text-amber-400' : 'text-mint-400'}
+            label="Uncovered classes"
+            value={s.uncoveredToday || 'None'}
+            sub={s.uncoveredToday ? 'no accepted substitute yet' : 'every absence is covered'}
+          />
           {/* Mid roll-call, "% of marked" masquerading as school attendance
               contradicts the health gauge — show progress until the day is
               representatively marked, then the real rate. */}
@@ -315,9 +332,9 @@ function StaffDashboard() {
           <Kpi icon={<Wallet className="h-3.5 w-3.5" />} tone="text-amber-400" label="Outstanding fees" value={inr(s.outstanding)} sub={`${s.overdueCount} accounts`} />
           <Kpi icon={<GraduationCap className="h-3.5 w-3.5" />} tone="text-cyan-400" label="Students" value={s.students} sub={`${s.classes} classes`} />
         </div>
-      </section>
+      </motion.section>
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-3">
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* Recommended actions — ranked by the engine's computed priority */}
         <div className="lg:col-span-2">
           <Card className="!p-0">

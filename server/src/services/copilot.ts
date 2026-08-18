@@ -37,7 +37,11 @@ const FORMAT_SYSTEM =
   'from Meridian’s database and Python intelligence engine. If the FACTS are empty or say the ' +
   'engine is offline, state that plainly and do not guess. Be concise (1–3 sentences), ' +
   'professional and actionable. Use the real names and numbers from FACTS; never fabricate ' +
-  'statistics, balances, predictions or students. Do not output raw JSON or code.';
+  'statistics, balances, predictions or students. Do not output raw JSON or code. ' +
+  // FACTS carry bare numbers, so without this the model renders a rupee balance
+  // as "$352,625" — the right figure in the wrong country's currency.
+  'Every monetary amount is Indian rupees: write it with ₹ and Indian digit grouping ' +
+  '(₹3,52,625 — not $352,625 and not ₹352,625). Never use any other currency symbol.';
 
 async function classify(question: string): Promise<{ intent: string; params: Record<string, unknown> }> {
   const catalog = INTENTS.map((i) => `- ${i.id} (${i.category}): ${i.description}`).join('\n');

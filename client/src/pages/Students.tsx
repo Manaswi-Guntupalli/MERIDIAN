@@ -7,7 +7,7 @@ import { api, apiError } from '@/lib/api';
 import { useAuth } from '@/store/auth';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
-import { Badge, EmptyState, LoadingScreen, Spinner } from '@/components/ui';
+import { Badge, EmptyState, Spinner, SkeletonRows } from '@/components/ui';
 import { Table, CellIdentity } from '@/components/ui/Table';
 import { initials } from '@/lib/utils';
 import type { StudentRow, ClassRow } from '@/types';
@@ -54,7 +54,9 @@ export default function Students() {
       </div>
 
       {students.isLoading ? (
-        <LoadingScreen />
+        <div className="surface overflow-hidden">
+          <SkeletonRows rows={8} />
+        </div>
       ) : (
         <Table
           rows={students.data ?? []}

@@ -5,7 +5,7 @@ import { UserX, AlertTriangle, CheckCircle2, MinusCircle, CircleDashed, Undo2, X
 import { api, apiError } from '@/lib/api';
 import { useUI } from '@/store/ui';
 import PageHeader from '@/components/PageHeader';
-import { Badge, LoadingScreen, EmptyState, Spinner } from '@/components/ui';
+import { Badge, EmptyState, Spinner, SkeletonRows } from '@/components/ui';
 import { Table, CellIdentity } from '@/components/ui/Table';
 import { initials, cn } from '@/lib/utils';
 import type { TeacherRow } from '@/types';
@@ -71,7 +71,13 @@ export default function Staff() {
     onError: (e) => pushToast({ title: 'Undo failed', body: apiError(e), severity: 'CRITICAL' }),
   });
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) {
+    return (
+      <div className="surface overflow-hidden">
+        <SkeletonRows rows={8} />
+      </div>
+    );
+  }
   const overloaded = data?.filter((t) => t.overloaded).length ?? 0;
 
   return (

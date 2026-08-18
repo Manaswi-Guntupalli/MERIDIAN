@@ -177,9 +177,11 @@ router.get(
     const schoolId = req.user!.schoolId;
     const students = await prisma.student.count({ where: { schoolId } });
     const t = await representativeDate(schoolId, students);
-    const [teacherList, classes, repAtt, live, fees, docsReview, activeEmergency, absencesToday, eventCount, aiCount] =
+    const [teachers, classes, repAtt, live, fees, docsReview, activeEmergency, absencesToday, eventCount, aiCount] =
       await Promise.all([
-        prisma.teacher.findMany({ where: { schoolId } }),
+        // A count, not the rows: the only reader of the full list was the
+        // teacher-overload sub-score, which no longer exists here.
+        prisma.teacher.count({ where: { schoolId } }),
         prisma.class.count({ where: { schoolId } }),
         prisma.attendance.findMany({ where: { schoolId, date: t } }),
         todayAttendance(schoolId, students),
@@ -191,7 +193,6 @@ router.get(
         prisma.aILog.count({ where: { schoolId } }),
       ]);
 
-    const teachers = teacherList.length;
     const present = repAtt.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
     const attendanceRate = repAtt.length ? Math.round((present / repAtt.length) * 100) : 0;
     const outstanding = fees.reduce((a, f) => a + (f.amount - f.paid), 0);
@@ -207,24 +208,24 @@ router.get(
         .map((f) => f.studentId),
     ).size;
 
-    // ── Sub-scores that make up Operational Health (all from live data) ──
+    // School health is NOT computed here. This route once carried its own
+    // weighted score with its own categories (attendance/finance/people/
+    // operations), while the Python engine published a different score from
+    // different categories. The dashboard rendered whichever arrived first, so
+    // the headline number visibly changed a second after the page opened.
+    // One metric, one owner: the engine at GET /dashboard/intelligence.
     const billed = fees.reduce((a, f) => a + f.amount, 0);
     const collected = fees.reduce((a, f) => a + f.paid, 0);
-    const financeScore = billed ? Math.round((collected / billed) * 100) : 100;
-    const overloaded = teacherList.filter((tt) => tt.weeklyHours >= tt.maxHours - 1).length;
-    const peopleScore = teachers ? Math.round(100 - (overloaded / teachers) * 100) : 100;
+    const feeCollectionRate = billed ? Math.round((collected / billed) * 100) : 100;
+
     // Cover only counts once a substitution is accepted — a declined or
     // pending one still leaves the period unstaffed.
     const uncovered = absencesToday.filter((a) => !a.substitutions.some((s) => s.accepted)).length;
-    const operationsScore = Math.max(0, 100 - docsReview * 6 - uncovered * 12);
-    const attendanceScore = attendanceRate;
 
-    const health = Math.round(attendanceScore * 0.35 + financeScore * 0.25 + peopleScore * 0.2 + operationsScore * 0.2);
-
-    // Admin time saved: each automated action (event + AI action) replaces ~8 min
-    // of manual entry/coordination. Grounded in the append-only ledger counts.
+    // Ledger volume — a count of what the system did, nothing more. The old
+    // "admin hours saved" multiplied this by an invented 8 minutes per action
+    // and presented the product as a measured saving.
     const automatedActions = eventCount + aiCount;
-    const timeSavedHours = Math.round((automatedActions * 8) / 60);
 
     res.json({
       students,
@@ -238,16 +239,8 @@ router.get(
       outstanding: Math.round(outstanding),
       overdueCount,
       docsInReview: docsReview,
-      health,
-      healthBreakdown: {
-        attendance: attendanceScore,
-        finance: financeScore,
-        people: peopleScore,
-        operations: operationsScore,
-      },
-      feeCollectionRate: financeScore,
+      feeCollectionRate,
       automatedActions,
-      timeSavedHours,
       uncoveredToday: uncovered,
       emergencyActive: !!activeEmergency,
     });

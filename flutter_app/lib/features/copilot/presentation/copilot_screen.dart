@@ -8,6 +8,7 @@ import '../../../shared/ui/ui.dart';
 import '../../dashboard/data/dashboard_repository.dart';
 import '../../dashboard/data/intelligence_repository.dart';
 import '../data/copilot_repository.dart';
+import 'copilot_wash.dart';
 
 /// Meridian Copilot on a phone. Answers come from the backend's event store —
 /// the app displays them and never composes one itself. Action chips run the
@@ -105,7 +106,10 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
   Widget build(BuildContext context) {
     final suggestions = ref.watch(copilotSuggestionsProvider);
 
-    return Column(
+    // The pastel wash the web scopes to its chat card, full-bleed here — the
+    // phone has no page frame to inset it from.
+    return CopilotWash(
+      child: Column(
       children: [
         Expanded(
           child: _messages.isEmpty
@@ -133,6 +137,7 @@ class _CopilotScreenState extends ConsumerState<CopilotScreen> {
           onSend: () => _send(_input.text),
         ),
       ],
+      ),
     );
   }
 }
@@ -371,9 +376,9 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.line)),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.55),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.70))),
       ),
       child: SafeArea(
         top: false,

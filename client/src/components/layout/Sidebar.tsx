@@ -180,7 +180,10 @@ export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: (
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        'group relative flex items-center rounded-[8px] text-[0.83rem] transition-colors duration-150',
+                        // The icon nudges toward the label on hover — a small
+                        // sign the row is live, without moving the text the
+                        // eye is reading.
+                        'group relative flex items-center rounded-[8px] text-[0.83rem] transition-[color,background-color] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]',
                         railed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-[7px]',
                         isActive ? 'font-semibold text-brand-700' : 'font-medium text-slate-500 hover:bg-ink-800 hover:text-slate-900',
                       )
@@ -198,8 +201,10 @@ export default function Sidebar({ onNavigate, mobile = false }: { onNavigate?: (
                         {isActive && !railed && <span className="absolute -left-3 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-r-full bg-brand-600" />}
                         <item.icon
                           className={cn(
-                            'h-[15px] w-[15px] shrink-0 transition-opacity',
-                            isActive ? 'text-brand-600' : cn(tintFor(item.group).icon, 'opacity-80 group-hover:opacity-100'),
+                            'h-[15px] w-[15px] shrink-0 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]',
+                            isActive
+                              ? 'text-brand-600'
+                              : cn(tintFor(item.group).icon, 'opacity-75 group-hover:opacity-100', !railed && 'group-hover:translate-x-[1px]'),
                           )}
                           strokeWidth={1.9}
                         />

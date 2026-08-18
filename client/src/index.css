@@ -7,6 +7,12 @@
   /* Spacing rhythm + radii tokens (single source of truth) */
   --r-card: 14px;
   --r-control: 9px;
+
+  /* Motion — mirrors constants/motion.ts so CSS transitions and Framer
+     animations share one timing language. */
+  --t-fast: 150ms;
+  --t-base: 220ms;
+  --e-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html,
@@ -61,31 +67,69 @@ body {
 }
 
 @layer components {
-  /* ── Surfaces: paper, not glass ── */
+  /* ── Surfaces: paper, not glass ──
+     Three levels of elevation, and only three. A page that gives everything
+     the same shadow has no hierarchy, so nothing can lead the eye:
+       .surface       supporting content — flush with the page
+       .surface-lead  the one thing that matters most on the page
+       .surface-over  dialogs and popovers, clearly above everything */
   .surface {
-    @apply rounded-[var(--r-card)] border border-line bg-surface;
-    box-shadow: 0 1px 2px rgba(28, 32, 31, 0.04);
+    @apply rounded-[var(--r-card)] border border-line bg-surface shadow-xs;
+  }
+  .surface-lead {
+    @apply rounded-[var(--r-card)] border border-line bg-surface shadow-md;
+  }
+  .surface-over {
+    @apply rounded-2xl border border-line bg-surface shadow-xl;
   }
   .surface-hover {
-    @apply transition-all duration-200 hover:-translate-y-[1px] hover:border-ink-600/60 hover:shadow-md;
+    transition:
+      transform var(--t-fast) var(--e-out),
+      box-shadow var(--t-fast) var(--e-out),
+      border-color var(--t-fast) var(--e-out);
+  }
+  .surface-hover:hover {
+    @apply border-ink-600/60 shadow-md;
+    transform: translateY(-1px);
   }
   .card {
     @apply surface p-5;
+  }
+  /* The page's protagonist: more air inside, more lift beneath. */
+  .card-lead {
+    @apply surface-lead p-6 lg:p-7;
   }
   /* A quiet inset well for secondary content */
   .well {
     @apply rounded-[10px] border border-line bg-ink-800/60;
   }
 
-  /* ── Typography helpers ── */
+  /* ── Typography ──
+     The scale is deliberately wide. A metric should read from across a desk;
+     the words explaining it should not compete with it. */
   .title-xl {
-    @apply font-display text-[2rem] font-semibold leading-[1.15] tracking-[-0.02em] text-slate-900 lg:text-[2.4rem];
+    @apply font-display text-[2rem] font-semibold leading-[1.12] tracking-[-0.022em] text-slate-900 lg:text-[2.4rem];
   }
   .title-md {
-    @apply font-display text-lg font-semibold text-slate-900;
+    @apply font-display text-lg font-semibold tracking-[-0.01em] text-slate-900;
+  }
+  /* Metric type: tabular, tight, and confident. */
+  .stat-xl {
+    @apply tnum font-display font-semibold leading-none tracking-[-0.03em] text-slate-900;
+    font-size: clamp(2.5rem, 4vw, 3.25rem);
+  }
+  .stat-lg {
+    @apply tnum font-display text-[1.75rem] font-semibold leading-none tracking-[-0.025em] text-slate-900;
+  }
+  .stat-md {
+    @apply tnum font-display text-[1.35rem] font-semibold leading-none tracking-[-0.02em] text-slate-900;
+  }
+  /* Supporting copy — present, never loud. */
+  .prose-quiet {
+    @apply text-[0.875rem] leading-relaxed text-slate-500;
   }
   .label {
-    @apply text-[0.7rem] font-semibold uppercase tracking-[0.09em] text-slate-400;
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-slate-400;
   }
   .eyebrow {
     @apply text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-brand-500;
@@ -94,29 +138,98 @@ body {
     @apply text-brand-600;
   }
 
-  /* ── Controls ── */
+  /* ── Controls ──
+     A button rises a hair toward the cursor and presses back down. The travel
+     is one pixel: enough for the hand to feel, too little to notice. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-[var(--r-control)] px-3.5 py-2.5 text-[0.82rem] font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-45;
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-[var(--r-control)] px-3.5 py-2.5 text-[0.82rem] font-semibold disabled:cursor-not-allowed disabled:opacity-45;
+    transition:
+      background-color var(--t-fast) var(--e-out),
+      color var(--t-fast) var(--e-out),
+      border-color var(--t-fast) var(--e-out),
+      box-shadow var(--t-fast) var(--e-out),
+      transform var(--t-fast) var(--e-out);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.99);
+    transition-duration: 60ms;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-xs hover:bg-brand-700 active:translate-y-px;
+    @apply btn bg-brand-600 text-white shadow-sm;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-brand-700 shadow-md;
+    transform: translateY(-1px);
   }
   .btn-ghost {
-    @apply btn border border-line bg-surface text-slate-700 shadow-xs hover:bg-ink-800 hover:text-slate-900 active:translate-y-px;
+    @apply btn border border-line bg-surface text-slate-700 shadow-xs;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply border-ink-600/70 bg-ink-800 text-slate-900 shadow-sm;
+    transform: translateY(-1px);
   }
   .btn-quiet {
     @apply btn text-slate-500 hover:bg-ink-800 hover:text-slate-900;
   }
   .btn-danger {
-    @apply btn bg-rose-400 text-white shadow-xs hover:bg-rose-500 active:translate-y-px;
+    @apply btn bg-rose-400 text-white shadow-sm;
+  }
+  .btn-danger:hover:not(:disabled) {
+    @apply bg-rose-500 shadow-md;
+    transform: translateY(-1px);
   }
 
   .input {
-    @apply w-full rounded-[var(--r-control)] border border-line bg-surface px-3 py-2.5 text-sm text-slate-800 shadow-xs outline-none transition placeholder:text-slate-400 focus:border-brand-500/60 focus:shadow-ring;
+    @apply w-full rounded-[var(--r-control)] border border-line bg-surface px-3 py-2.5 text-sm text-slate-800 shadow-xs outline-none placeholder:text-slate-400;
+    transition:
+      border-color var(--t-fast) var(--e-out),
+      box-shadow var(--t-fast) var(--e-out),
+      background-color var(--t-fast) var(--e-out);
+  }
+  .input:hover:not(:focus):not(:disabled) {
+    @apply border-ink-600/70;
+  }
+  .input:focus {
+    @apply border-brand-500/60 shadow-ring;
+  }
+  select.input {
+    @apply cursor-pointer;
   }
 
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-ink-800/70 px-2.5 py-1 text-[0.72rem] font-medium text-slate-600;
+  }
+
+  /* ── Data tables ──
+     Dividers, not boxes. The header is a quiet label row; the eye travels down
+     names, and a whole row responds to the cursor so the click target is
+     obvious without a button in every row. */
+  .t-head {
+    @apply label border-b border-line px-5 py-3 text-left font-semibold;
+  }
+  .t-row {
+    @apply border-b border-line/70 last:border-0;
+    transition:
+      background-color var(--t-fast) var(--e-out),
+      box-shadow var(--t-fast) var(--e-out);
+  }
+  .t-row:hover {
+    @apply bg-ink-800/45;
+    box-shadow: inset 2px 0 0 0 theme('colors.brand.400');
+  }
+  .t-cell {
+    @apply px-5 py-3.5 align-middle text-sm text-slate-700;
+  }
+  /* The chevron that says "this row opens" — invisible until you approach. */
+  .t-row .row-affordance {
+    @apply text-slate-300;
+    transition:
+      color var(--t-fast) var(--e-out),
+      transform var(--t-fast) var(--e-out);
+  }
+  .t-row:hover .row-affordance {
+    @apply text-brand-500;
+    transform: translateX(2px);
   }
 
   /* ── Depth (the calm kind of 3D) ──
@@ -185,6 +298,9 @@ body {
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
   }
+  /* A skeleton should breathe, not scan. The sweep is slow and low-contrast so
+     a loading page feels calm rather than busy; a fast bright wipe reads as a
+     progress bar and makes waiting feel longer than it is. */
   .shimmer {
     position: relative;
     overflow: hidden;
@@ -194,8 +310,12 @@ body {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(28, 32, 31, 0.045), transparent);
-    animation: shimmer 1.5s infinite;
+    background: linear-gradient(90deg, transparent, rgba(28, 32, 31, 0.035), transparent);
+    animation: shimmer 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  /* Text-shaped skeletons: the last line of a paragraph is always short. */
+  .skeleton-line:last-child {
+    width: 62%;
   }
 }
 

@@ -17,7 +17,7 @@ from ..forecasting import forecast
 from ..llm import polish_reasons
 from ..recommendation_engine import recommend
 from ..scoring import health
-from ..config import ENGINE_VERSION
+from ..config import ENGINE_VERSION, FACE_COVERAGE_TARGET
 
 
 def _now() -> str:
@@ -336,6 +336,29 @@ def run(school_id: str) -> dict:
                 {"model": "Direct attendance-event statistics", "window": "full event log",
                  "features": ops, "dataSources": ["AttendanceEvent"]},
             ))
+
+    # Face rollout coverage. Deliberately NOT part of the operations score —
+    # how far a deployment has got is not how well the school is running — but
+    # a school whose primary capture method can only reach a fraction of its
+    # roster should be told so directly.
+    coverage = ops.get("enrollment_coverage")
+    total_students = ops.get("total_students", 0)
+    if coverage is not None and total_students > 0 and coverage < FACE_COVERAGE_TARGET:
+        enrolled = ops.get("enrolled_students", 0)
+        insights.append(_insight(
+            "ops-face-coverage", "operations", "WARNING",
+            f"Face attendance can reach only {coverage*100:.0f}% of students",
+            [{"label": "Enrolled", "value": f"{enrolled}/{total_students}"},
+             {"label": "Coverage", "value": f"{coverage*100:.0f}%"},
+             {"label": "Target", "value": f"{FACE_COVERAGE_TARGET*100:.0f}%"}],
+            observed_fact(total_students, "student roster"),
+            {"count": total_students - enrolled, "entities": []},
+            "Only enrolled students can be recognised by face; everyone else falls back to QR or manual marking.",
+            "Attendance still works, but the fastest and hardest-to-spoof method is unavailable for most of the school.",
+            {"model": "Enrolled students / active students", "window": "current roster",
+             "features": {"enrolled": enrolled, "total_students": total_students, "coverage": coverage},
+             "dataSources": ["Student", "FaceEmbedding"]},
+        ))
 
     # ── Early warning: at-risk students ─────────────────────────────────
     at_risk = students_fe.build(frames, anchor)
