@@ -12,7 +12,7 @@ Built by **Manaswi Guntupalli** with a simple conviction: school software should
 
 | Full platform walkthrough | Flutter companion walkthrough |
 | --- | --- |
-| **[▶ Watch `MERIDIAN_FINAL_DEMO`](MERIDIAN_FINAL_DEMO.mp4)**<br>Explore the principal web experience: operations, intelligence, attendance, communication, and Trust Core. | **[▶ Watch `MERIDIAN_APP_FINAL_DEMO`](MERIDIAN_APP_FINAL_DEMO.mp4)**<br>See the mobile experience for principals, students, and families—including QR attendance. |
+| **[▶ Watch `MERIDIAN_FINAL_DEMO`](https://drive.google.com/file/d/1XiFDfz1RLQ4IhYxchJI3ik3Bu4OIdWdm/view?usp=sharing)**<br>Explore the principal web experience: operations, intelligence, attendance, communication, and Trust Core. | **[▶ Watch `MERIDIAN_APP_FINAL_DEMO`](https://drive.google.com/file/d/1n_vcO8DhqhWMGlWz1RQwOzrBMm2tdJof/view?usp=sharing)**<br>See the mobile experience for principals, students, and families—including QR attendance. |
 
 ## What makes Meridian different
 
