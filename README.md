@@ -79,7 +79,7 @@ Presence turns attendance into a verifiable flow. A teacher opens a session; stu
 
 The Flutter companion brings the same operating model to the people who need it most. Principals can see school health, attendance, timetables, Copilot, notices, emergencies, and alerts from a phone. Students scan attendance QR codes; parents receive a focused view of each child’s attendance, timetable, fees, and notifications.
 
-Watch the complete mobile walkthrough: **[▶ `MERIDIAN_APP_FINAL_DEMO`](MERIDIAN_APP_FINAL_DEMO.mp4)**.
+Watch the complete mobile walkthrough: **[▶ `MERIDIAN_APP_FINAL_DEMO`](https://drive.google.com/file/d/1n_vcO8DhqhWMGlWz1RQwOzrBMm2tdJof/view?usp=sharing)**.
 
 #### Principal mobile companion
 
